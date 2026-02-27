@@ -249,6 +249,8 @@
 <div class="titlebar">
   <h1><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="M12 2v10h10"/><circle cx="16" cy="8" r="2"/></svg> MW <span>Theme Studio</span></h1>
   <div class="titlebar-actions">
+    <select id="wsSelectGlobal" style="font-size:10px;padding:3px 6px;background:var(--surface);color:var(--text2);border:1px solid var(--border);border-radius:4px;font-family:inherit;max-width:120px;-webkit-app-region:no-drag" title="MotiveWave Workspace"></select>
+    <div class="divider"></div>
     <span id="mwStatus"></span>
     <div class="divider"></div>
     <button class="btn btn-ghost" onclick="undo()" id="undoBtn" disabled title="Undo (⌘Z)">↩</button>
@@ -1116,33 +1118,47 @@ init();
 let indStudies = [];
 let indChanges = {}; // {studyId: {colorKey: {hex, alpha}}}
 
-// Load workspaces on tab first visit
+// Load workspaces on startup
 let wsLoaded = false;
 async function loadWorkspaces() {
   if (wsLoaded) return;
   try {
     const result = await window.electronAPI.listWorkspaces();
     if (result.ok && result.workspaces.length) {
-      const sel = document.getElementById('wsSelect');
-      sel.innerHTML = '';
-      for (const ws of result.workspaces) {
-        const opt = document.createElement('option');
-        opt.value = ws; opt.textContent = ws;
-        sel.appendChild(opt);
+      const active = result.active || result.workspaces[0];
+      // Populate both selectors
+      for (const selId of ['wsSelect', 'wsSelectGlobal']) {
+        const sel = document.getElementById(selId);
+        if (!sel) continue;
+        sel.innerHTML = '';
+        for (const ws of result.workspaces) {
+          const opt = document.createElement('option');
+          opt.value = ws; opt.textContent = ws;
+          sel.appendChild(opt);
+        }
+        sel.value = active;
+        sel.onchange = () => {
+          // Sync both selectors
+          document.querySelectorAll('#wsSelect,#wsSelectGlobal').forEach(s => s.value = sel.value);
+          scanIndicators(sel.value);
+        };
       }
-      sel.value = result.active || result.workspaces[0];
       wsLoaded = true;
-      // Auto-scan first workspace
-      scanIndicators(sel.value);
     }
   } catch {}
 }
 
-// Patch switchTab to trigger workspace load
+// Load workspaces immediately + auto-scan on first Indicators tab visit
+loadWorkspaces();
+let indAutoScanned = false;
 const _origSwitchTab = switchTab;
 switchTab = function(t) {
   _origSwitchTab(t);
-  if (t === 'indicators') loadWorkspaces();
+  if (t === 'indicators' && !indAutoScanned && wsLoaded) {
+    indAutoScanned = true;
+    const sel = document.getElementById('wsSelect');
+    if (sel?.value) scanIndicators(sel.value);
+  }
 };
 
 async function scanIndicators(wsName) {
