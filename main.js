@@ -61,35 +61,21 @@ const cssToId = {
   'hover-base': 'hoverBase', 'btn-pressed': 'btnPressed'
 };
 
-// ==================== FILE WRITE ====================
-// Strategy: write directly. If EACCES/EPERM, show a one-time Terminal command
-// that makes the MW styles dir writable. No TCC, no App Management, no osascript.
+// ==================== TERMINAL SUDO ====================
+// Write temp files, open Terminal with sudo script. User enters password. Done.
 
-const { clipboard } = require('electron');
-
-function canWriteMW() {
-  try {
-    fs.accessSync(MW_STYLES + '/dark.css', fs.constants.W_OK);
-    return true;
-  } catch { return false; }
-}
-
-async function showSetupDialog() {
-  const cmd = `sudo chmod -R a+rw "/Applications/MotiveWave.app/Contents/styles"`;
-  const win = BrowserWindow.getFocusedWindow();
-  const { response } = await dialog.showMessageBox(win, {
-    type: 'info',
-    title: 'One-Time Setup',
-    message: 'Run this command in Terminal (once):',
-    detail: cmd + '\n\nThis makes MotiveWave\'s theme files editable. After running it, click Save again.\n\nThe command has been copied to your clipboard.',
-    buttons: ['Copy & Open Terminal', 'Cancel'],
-    defaultId: 0
+function runInTerminal(scriptPath, successMsg) {
+  return new Promise((resolve) => {
+    const tcmd = `osascript -e 'tell application "Terminal"
+activate
+do script "sudo bash ${scriptPath} && echo && echo \\"${successMsg}\\" && sleep 2 && exit"
+end tell'`;
+    exec(tcmd, (err) => {
+      // Terminal opened — we can't know if sudo succeeded from here,
+      // but if the script runs, it works. Resolve ok.
+      resolve(err ? { ok: false, error: err.message } : { ok: true });
+    });
   });
-  if (response === 0) {
-    clipboard.writeText(cmd);
-    exec('open -a Terminal');
-  }
-  return { ok: false, error: 'Paste the command in Terminal, then try Save again.' };
 }
 
 // ==================== WINDOW ====================
@@ -385,53 +371,43 @@ ipcMain.handle('import-theme-json', async () => {
 
 ipcMain.handle('apply-theme', async (event, { css, font }) => {
   try {
-    // Check if we can write
-    if (!canWriteMW()) return await showSetupDialog();
-
-    const darkPath = MW_STYLES + '/dark.css';
-    const uiPath = MW_STYLES + '/ui_theme.css';
-    const backupDir = path.join(process.env.HOME, '.mw-theme-backup');
-
-    // Create backup on first save
-    fs.mkdirSync(backupDir, { recursive: true });
-    if (!fs.existsSync(path.join(backupDir, 'dark.css.backup'))) {
-      try { fs.copyFileSync(darkPath, path.join(backupDir, 'dark.css.backup')); } catch {}
-    }
-    if (!fs.existsSync(path.join(backupDir, 'ui_theme.css.backup'))) {
-      try { fs.copyFileSync(uiPath, path.join(backupDir, 'ui_theme.css.backup')); } catch {}
-    }
-
-    // Write dark.css
-    fs.writeFileSync(darkPath, css);
-
-    // Update font in ui_theme.css
-    let uiCSS = fs.readFileSync(uiPath, 'utf8');
-    uiCSS = uiCSS.replace(/-fx-font-family: '[^']*'/g, `-fx-font-family: '${font}'`);
-    uiCSS = uiCSS.replace(/\n?\/\* === MW THEME STUDIO FONT OVERRIDE === \*\/[\s\S]*?\/\* === END MW THEME STUDIO === \*\/\n?/g, '');
-    uiCSS += '\n/* === MW THEME STUDIO FONT OVERRIDE === */\n' +
+    // Write CSS + font to temp files
+    fs.writeFileSync('/tmp/mw-theme-dark.css', css);
+    const fontBlock = '\n/* === MW THEME STUDIO FONT OVERRIDE === */\n' +
       `* { -fx-font-family: "${font}"; }\n` +
       `.label, .button, .toggle-button, .menu-item, .menu, .text, .text-input, .combo-box, .choice-box, .tab-pane .tab-label, .titled-pane > .title, .tool-bar, .status-bar, .dock-tab, .table-cell, .tree-cell, .list-cell { -fx-font-family: "${font}"; }\n` +
       '/* === END MW THEME STUDIO === */\n';
-    fs.writeFileSync(uiPath, uiCSS);
+    fs.writeFileSync('/tmp/mw-theme-font.txt', fontBlock);
 
-    return { ok: true };
+    // Build install script
+    const script = `#!/bin/bash
+STYLES="${MW_STYLES}"
+BACKUP="$HOME/.mw-theme-backup"
+mkdir -p "$BACKUP"
+[ ! -f "$BACKUP/dark.css.backup" ] && cp "$STYLES/dark.css" "$BACKUP/dark.css.backup" 2>/dev/null
+[ ! -f "$BACKUP/ui_theme.css.backup" ] && cp "$STYLES/ui_theme.css" "$BACKUP/ui_theme.css.backup" 2>/dev/null
+cp /tmp/mw-theme-dark.css "$STYLES/dark.css"
+sed -i '' "s/-fx-font-family: '[^']*'/-fx-font-family: '${font}'/" "$STYLES/ui_theme.css"
+sed -i '' '/=== MW THEME STUDIO FONT OVERRIDE ===/,/=== END MW THEME STUDIO ===/d' "$STYLES/ui_theme.css"
+cat /tmp/mw-theme-font.txt >> "$STYLES/ui_theme.css"
+echo "Theme installed!"`;
+    fs.writeFileSync('/tmp/mw-theme-install.sh', script, { mode: 0o755 });
+
+    return await runInTerminal('/tmp/mw-theme-install.sh', 'Theme installed! Restart MotiveWave.');
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('restore-theme', async () => {
   try {
-    if (!canWriteMW()) return await showSetupDialog();
+    const script = `#!/bin/bash
+STYLES="${MW_STYLES}"
+BACKUP="$HOME/.mw-theme-backup"
+[ -f "$BACKUP/dark.css.backup" ] && cp "$BACKUP/dark.css.backup" "$STYLES/dark.css"
+[ -f "$BACKUP/ui_theme.css.backup" ] && cp "$BACKUP/ui_theme.css.backup" "$STYLES/ui_theme.css"
+echo "Restored!"`;
+    fs.writeFileSync('/tmp/mw-theme-restore.sh', script, { mode: 0o755 });
 
-    const backupDir = path.join(process.env.HOME, '.mw-theme-backup');
-    const darkBackup = path.join(backupDir, 'dark.css.backup');
-    const uiBackup = path.join(backupDir, 'ui_theme.css.backup');
-
-    if (!fs.existsSync(darkBackup)) return { ok: false, error: 'No backup found.' };
-
-    fs.copyFileSync(darkBackup, MW_STYLES + '/dark.css');
-    if (fs.existsSync(uiBackup)) fs.copyFileSync(uiBackup, MW_STYLES + '/ui_theme.css');
-
-    return { ok: true };
+    return await runInTerminal('/tmp/mw-theme-restore.sh', 'Restored! Restart MotiveWave.');
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
