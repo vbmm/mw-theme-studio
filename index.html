@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MW Theme Studio</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    --bg:#030712;--surface:#0a0f1a;--surface2:#111827;--border:#1f2937;
+    --text:#f9fafb;--text2:#9ca3af;--text3:#6b7280;
+    --accent:#6366f1;--accent2:#818cf8;--success:#22c55e;--danger:#ef4444;--warning:#f59e0b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow:hidden;height:100vh}
+
+  .titlebar{-webkit-app-region:drag;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 14px 0 80px;border-bottom:1px solid var(--border);background:rgba(3,7,18,0.95);backdrop-filter:blur(20px);flex-shrink:0}
+  .titlebar h1{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .titlebar h1 span{color:var(--accent)}
+  .titlebar-actions{-webkit-app-region:no-drag;display:flex;gap:4px;align-items:center}
+
+  .btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:inherit;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:4px;-webkit-app-region:no-drag;white-space:nowrap}
+  .btn:hover{background:#1f2937;border-color:#374151}
+  .btn:active{transform:scale(0.97)}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent2)}
+  .btn-success{background:#15803d;border-color:#16a34a;color:#fff}
+  .btn-success:hover{background:#16a34a}
+  .btn-danger{background:#7f1d1d;border-color:#991b1b;color:#fca5a5}
+  .btn-danger:hover{background:#991b1b}
+  .btn:disabled{opacity:.4;cursor:default;transform:none}
+  .btn-ghost{background:transparent;border-color:transparent}
+  .btn-ghost:hover{background:var(--surface2);border-color:var(--border)}
+  .btn-sm{padding:3px 8px;font-size:10px}
+  .status-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .status-dot.green{background:var(--success);box-shadow:0 0 6px var(--success)}
+  .status-text{font-size:10px;color:var(--text2)}
+  .divider{width:1px;height:20px;background:var(--border);margin:0 4px}
+
+  .layout{display:grid;grid-template-columns:380px 1fr;height:calc(100vh - 44px)}
+  .sidebar{border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+
+  .tab-bar{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
+  .tab-btn{flex:1;padding:9px 4px;font-family:inherit;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;border:none;background:transparent;color:var(--text3);cursor:pointer;transition:all .15s;border-bottom:2px solid transparent}
+  .tab-btn:hover{color:var(--text2);background:rgba(255,255,255,.02)}
+  .tab-btn.active{color:var(--accent2);border-bottom-color:var(--accent);background:rgba(99,102,241,.05)}
+
+  .tab-content{display:none;flex:1;overflow-y:auto;padding:14px}
+  .tab-content.active{display:block}
+  .tab-content::-webkit-scrollbar{width:5px}
+  .tab-content::-webkit-scrollbar-track{background:transparent}
+  .tab-content::-webkit-scrollbar-thumb{background:#374151;border-radius:3px}
+
+  .section{margin-bottom:18px}
+  .section-title{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+
+  .presets{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .preset{padding:7px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;transition:all .15s;text-align:center}
+  .preset:hover{border-color:var(--accent);background:var(--surface2)}
+  .preset.active{border-color:var(--accent);background:rgba(99,102,241,.1)}
+  .preset-name{font-size:10px;font-weight:500;margin-bottom:3px}
+  .preset-bar{display:flex;gap:1px;height:6px;border-radius:2px;overflow:hidden}
+  .preset-bar span{flex:1}
+
+  .crow{display:flex;align-items:center;padding:3px 0;gap:6px}
+  .crow label{font-size:11px;color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .crow input[type=color]{-webkit-appearance:none;width:24px;height:24px;border:2px solid var(--border);border-radius:5px;cursor:pointer;background:none;padding:0;flex-shrink:0}
+  .crow input[type=color]::-webkit-color-swatch-wrapper{padding:1px}
+  .crow input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
+  .chex{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text2);background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 5px;width:62px;text-align:center}
+  .chex:focus{border-color:var(--accent);outline:none;color:var(--text)}
+  .crow-highlight{background:rgba(99,102,241,.08);border-radius:5px;padding:3px 5px !important;margin:0 -5px;transition:background .3s}
+
+  select,.sz-input{width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;font-size:12px;margin-bottom:6px}
+  select:focus,.sz-input:focus{border-color:var(--accent);outline:none}
+  .sz-row{display:flex;align-items:center;gap:6px}
+  .sz-row label{font-size:11px;color:var(--text2);min-width:36px}
+  .sz-row input[type=range]{flex:1;accent-color:var(--accent)}
+  .sz-row .sv{font-size:11px;min-width:30px;text-align:right;font-family:monospace}
+
+  .search-box{width:100%;padding:6px 8px 6px 28px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;font-size:12px;margin-bottom:10px}
+  .search-box:focus{border-color:var(--accent);outline:none}
+  .search-wrap{position:relative}
+  .search-wrap::before{content:'⌕';position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:13px;pointer-events:none}
+
+  .var-group{margin-bottom:12px}
+  .var-group-title{font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;padding:3px 0;cursor:pointer;display:flex;align-items:center;gap:5px}
+  .var-group-title:hover{color:var(--text2)}
+  .var-group-title .arrow{font-size:9px;transition:transform .15s}
+  .var-group-title .arrow.open{transform:rotate(90deg)}
+  .var-group-body{padding-left:6px}
+  .var-group-body.collapsed{display:none}
+  .var-row{display:flex;align-items:center;gap:4px;padding:3px 0;font-size:11px}
+  .var-row .var-name{color:var(--text2);flex:1;font-family:'JetBrains Mono',monospace;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
+  .var-row .var-name:hover{color:var(--text)}
+  .var-row .var-val{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3);background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 4px;width:115px;text-align:left}
+  .var-row .var-val:focus{border-color:var(--accent);outline:none;color:var(--text)}
+  .var-row .var-val.changed{border-color:var(--warning);color:var(--warning)}
+  .var-row input[type=color]{width:18px;height:18px;border:1px solid var(--border);border-radius:4px}
+  .var-count{font-size:10px;color:var(--text3);font-weight:400;margin-left:auto}
+  .fav-btn{background:none;border:none;cursor:pointer;font-size:11px;opacity:.3;transition:opacity .15s;padding:0 3px}
+  .fav-btn:hover{opacity:.7}
+  .fav-btn.active{opacity:1;color:var(--warning)}
+
+  .sel-item{margin-bottom:6px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .sel-header{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--surface);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text2)}
+  .sel-header:hover{background:var(--surface2);color:var(--text)}
+  .sel-header .arrow{font-size:8px;transition:transform .15s;flex-shrink:0}
+  .sel-header .arrow.open{transform:rotate(90deg)}
+  .sel-header .sel-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sel-header .sel-count{font-size:9px;color:var(--text3)}
+  .sel-body{display:none;padding:4px 8px;background:rgba(0,0,0,.15)}
+  .sel-body.open{display:block}
+  .sel-prop{display:flex;align-items:center;gap:4px;padding:2px 0}
+  .sel-prop .prop-name{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent2);min-width:135px}
+  .sel-prop .prop-val{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text2);flex:1;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 4px}
+  .sel-prop .prop-val:focus{border-color:var(--accent);outline:none;color:var(--text)}
+  .sel-prop .prop-val.changed{border-color:var(--warning);color:var(--warning)}
+
+  .css-editor{width:100%;height:calc(100vh - 160px);background:var(--surface);color:#e2e8f0;border:1px solid var(--border);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px;resize:none;line-height:1.6;tab-size:2}
+  .css-editor:focus{border-color:var(--accent);outline:none}
+  .css-editor::placeholder{color:var(--text3)}
+
+  /* Preview */
+  .preview-wrap{display:flex;flex-direction:column;overflow:hidden}
+  .preview-toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
+  .preview-toolbar .plabel{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text2)}
+  .before-after{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-left:auto}
+  .before-after button{padding:4px 12px;border:none;font-family:inherit;font-size:10px;font-weight:500;cursor:pointer;background:transparent;color:var(--text3);transition:all .15s}
+  .before-after button.active{background:var(--accent);color:#fff}
+  .before-after button:hover:not(.active){background:var(--surface2)}
+
+  .preview{padding:14px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px;background:var(--bg)}
+  .preview::-webkit-scrollbar{width:4px}
+  .preview::-webkit-scrollbar-track{background:transparent}
+  .preview::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
+
+  /* Interactive preview elements */
+  [data-edit]{cursor:pointer;transition:outline .15s,box-shadow .15s;position:relative}
+  [data-edit]:hover{outline:1px dashed var(--accent);outline-offset:1px;z-index:10}
+  [data-edit].pv-selected{outline:2px solid var(--accent);outline-offset:1px;z-index:11}
+  @keyframes pvFlash{0%{box-shadow:0 0 0 0 rgba(99,102,241,.5)}50%{box-shadow:0 0 12px 4px rgba(99,102,241,.3)}100%{box-shadow:0 0 0 0 transparent}}
+  .pv-flash{animation:pvFlash .5s ease-out}
+
+  /* Inspector tooltip */
+  .pv-inspector{position:fixed;z-index:100;background:rgba(3,7,18,.95);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;pointer-events:none;opacity:0;transition:opacity .12s;backdrop-filter:blur(8px);max-width:280px}
+  .pv-inspector.show{opacity:1}
+  .pv-inspector .pi-label{font-size:11px;font-weight:600;color:var(--accent2);margin-bottom:3px}
+  .pv-inspector .pi-vars{font-size:10px;color:var(--text2);font-family:'JetBrains Mono',monospace}
+  .pv-inspector .pi-hint{font-size:9px;color:var(--text3);margin-top:4px;font-style:italic}
+
+  /* MW Mockup */
+  .mw{border:1px solid #333;border-radius:7px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  .mw-menubar{display:flex;align-items:center;padding:2px 5px;gap:1px;font-size:10px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .mw-menubar span{padding:2px 6px;border-radius:2px}
+  .mw-toolbar{display:flex;align-items:center;padding:2px 5px;gap:2px;font-size:9px;border-bottom:1px solid rgba(255,255,255,.04)}
+  .mw-toolbar .ctl{padding:2px 7px;border-radius:3px;border:1px solid rgba(255,255,255,.06)}
+  .mw-toolbar .sep{width:1px;height:14px;margin:0 2px}
+  .mw-tabs{display:flex;padding:1px 5px;gap:1px;border-bottom:1px solid rgba(255,255,255,.05);font-size:9px}
+  .mw-tab{padding:2px 8px;border-radius:3px 3px 0 0}
+  .mw-body{display:flex;min-height:260px}
+  .mw-chart{flex:1;position:relative;overflow:hidden}
+  .mw-chart .grid{position:absolute;inset:0}
+  .mw-chart .wm{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;font-weight:700;opacity:.04;letter-spacing:2px}
+  .mw-chart .candles{position:absolute;bottom:24px;left:10px;right:46px;height:190px;display:flex;align-items:flex-end;gap:2px}
+  .mw-chart .candle{flex:1;min-width:2px;max-width:7px;border-radius:1px}
+  .mw-chart .axis-y{position:absolute;right:0;top:0;bottom:18px;width:46px;display:flex;flex-direction:column;justify-content:space-between;padding:6px 3px;font-size:7px;text-align:right;border-left:1px solid}
+  .mw-chart .axis-x{position:absolute;bottom:0;left:0;right:46px;height:18px;display:flex;align-items:center;justify-content:space-around;font-size:7px;border-top:1px solid}
+  .mw-dom{width:120px;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column}
+  .mw-dom-hdr{padding:2px 5px;font-size:8px;font-weight:600;text-align:center;border-bottom:1px solid rgba(255,255,255,.06)}
+  .mw-dom-row{display:flex;justify-content:space-between;padding:1px 5px;font-size:8px;border-bottom:1px solid rgba(255,255,255,.02)}
+  .mw-dom-btns{display:flex;gap:2px;padding:3px;margin-top:auto}
+  .mw-dom-btns .dbtn{flex:1;text-align:center;padding:3px 1px;border-radius:3px;font-size:8px;font-weight:700}
+  .mw-statusbar{display:flex;align-items:center;padding:2px 7px;font-size:8px;gap:8px;border-top:1px solid rgba(255,255,255,.06)}
+
+  .prev-panels{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .prev-panel{border-radius:5px;padding:7px;box-shadow:0 3px 12px rgba(0,0,0,.3);overflow:hidden}
+  .prev-panel .pp-title{font-size:8px;font-weight:600;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .prev-panel .pp-item{padding:2px 5px;font-size:9px;border-radius:2px;margin-bottom:1px}
+  .prev-panel .pp-sep{height:1px;margin:2px 0}
+  .prev-table-row{display:flex;justify-content:space-between;align-items:center;padding:2px 5px;font-size:8px;border-bottom:1px solid rgba(0,0,0,.1)}
+
+  /* Auto-theme modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .modal{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:340px;max-width:400px}
+  .modal h2{font-size:14px;margin-bottom:12px}
+  .modal .crow{margin-bottom:8px}
+  .modal .mactions{display:flex;gap:6px;margin-top:16px;justify-content:flex-end}
+
+  .toast{position:fixed;bottom:16px;right:16px;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:500;transform:translateY(80px);opacity:0;transition:all .3s;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+  .toast.show{transform:translateY(0);opacity:1}
+  .toast.ok{background:var(--success);color:#fff}
+  .toast.err{background:var(--danger);color:#fff}
+
+  .badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:8px;background:var(--warning);color:#000;font-size:9px;font-weight:700;padding:0 4px;margin-left:3px}
+  .badge:empty,.badge[data-c="0"]{display:none}
+
+  /* Help panel */
+  .help-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .help-panel{background:var(--bg);border:1px solid var(--border);border-radius:12px;width:680px;max-width:90vw;height:75vh;display:grid;grid-template-columns:180px 1fr;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,.5)}
+  .help-nav{border-right:1px solid var(--border);padding:14px 0;overflow-y:auto;background:var(--surface)}
+  .help-nav-title{font-size:11px;font-weight:700;color:var(--text);padding:0 14px 10px;border-bottom:1px solid var(--border);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .help-nav-item{display:block;width:100%;padding:7px 14px;border:none;background:transparent;color:var(--text2);font-family:inherit;font-size:11px;text-align:left;cursor:pointer;transition:all .12s;border-left:2px solid transparent}
+  .help-nav-item:hover{color:var(--text);background:rgba(255,255,255,.03)}
+  .help-nav-item.active{color:var(--accent2);background:rgba(99,102,241,.06);border-left-color:var(--accent)}
+  .help-body{padding:20px 24px;overflow-y:auto}
+  .help-body::-webkit-scrollbar{width:5px}
+  .help-body::-webkit-scrollbar-thumb{background:#374151;border-radius:3px}
+  .help-body h2{font-size:16px;font-weight:700;margin-bottom:10px;color:var(--text)}
+  .help-body h3{font-size:13px;font-weight:600;margin:14px 0 6px;color:var(--accent2)}
+  .help-body p{font-size:12px;line-height:1.7;color:var(--text2);margin-bottom:10px}
+  .help-body ul{font-size:12px;line-height:1.7;color:var(--text2);padding-left:18px;margin-bottom:10px}
+  .help-body li{margin-bottom:4px}
+  .help-body code{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--surface2);padding:1px 5px;border-radius:3px;color:var(--accent2)}
+  .help-body kbd{font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--surface2);border:1px solid var(--border);padding:2px 6px;border-radius:4px;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .help-body .tip{background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:6px;padding:8px 12px;margin:10px 0;font-size:11px;color:var(--text2)}
+  .help-body .tip strong{color:var(--accent2)}
+  .help-close{position:absolute;top:12px;right:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text);width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .15s}
+  .help-close:hover{background:#1f2937;border-color:#374151}
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <h1><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="M12 2v10h10"/><circle cx="16" cy="8" r="2"/></svg> MW <span>Theme Studio</span></h1>
+  <div class="titlebar-actions">
+    <span id="mwStatus"></span>
+    <div class="divider"></div>
+    <button class="btn btn-ghost" onclick="undo()" id="undoBtn" disabled title="Undo (⌘Z)">↩</button>
+    <button class="btn btn-ghost" onclick="redo()" id="redoBtn" disabled title="Redo (⌘⇧Z)">↪</button>
+    <div class="divider"></div>
+    <button class="btn" onclick="importCurrent()">Import</button>
+    <button class="btn" onclick="importAll()" title="Import All">Import All</button>
+    <button class="btn" onclick="exportAll()" title="Export All">Export All</button>
+    <button class="btn" onclick="resetPreset('oled-black')">↺</button>
+    <button class="btn btn-success" id="saveBtn" onclick="saveApply()">✓ Save</button>
+    <button class="btn btn-danger" onclick="restore()">Restore</button>
+    <div class="divider"></div>
+    <button class="btn btn-ghost" onclick="showHelp()" title="Help">?</button>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="quick" onclick="switchTab('quick')">Quick Edit</button>
+      <button class="tab-btn adv-tab" data-tab="vars" onclick="switchTab('vars')" style="display:none">Vars <span class="badge" id="varBadge"></span></button>
+      <button class="tab-btn adv-tab" data-tab="sels" onclick="switchTab('sels')" style="display:none">Selectors <span class="badge" id="selBadge"></span></button>
+      <button class="tab-btn adv-tab" data-tab="css" onclick="switchTab('css')" style="display:none">CSS</button>
+      <button class="tab-btn" style="font-size:12px;flex:0;padding:9px 12px" onclick="toggleAdvanced()" id="advToggle" title="Show advanced tabs (Variables, Selectors, Raw CSS)">⚙</button>
+    </div>
+
+    <div class="tab-content active" id="tab-quick">
+      <!-- Auto Theme -->
+      <div class="section">
+        <div class="section-title">Auto Theme <button class="btn btn-sm" onclick="showAutoTheme()">Generate</button></div>
+        <div style="font-size:10px;color:var(--text3)">Pick base + accent → full palette in 1 click</div>
+      </div>
+      <div class="section">
+        <div class="section-title">Presets</div>
+        <div class="presets" id="presets"></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Font</div>
+        <select id="fontFamily" onchange="up()">
+          <option value="Monaco">Monaco</option><option value="SF Mono">SF Mono</option><option value="Menlo">Menlo</option>
+          <option value="Inter">Inter</option><option value="Roboto">Roboto</option><option value="JetBrains Mono">JetBrains Mono</option>
+          <option value="Fira Code">Fira Code</option><option value="Consolas">Consolas</option><option value="Source Code Pro">Source Code Pro</option><option value="Hack">Hack</option>
+        </select>
+        <div class="sz-row"><label>Size</label><input type="range" id="fontSize" min="8" max="14" step="0.5" value="10.5" oninput="document.getElementById('fsv').textContent=this.value+'pt';up()"><span class="sv" id="fsv">10.5pt</span></div>
+      </div>
+      <div class="section"><div class="section-title">My Presets <button class="btn btn-sm" onclick="saveCustomPreset()">+ Save</button></div><div id="customPresets" style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px"></div><div id="noCustom" style="font-size:11px;color:var(--text3);text-align:center;padding:8px">None saved</div></div>
+      <div class="section"><div class="section-title">Backgrounds</div><div id="g-bg"></div></div>
+      <div class="section"><div class="section-title">UI Elements</div><div id="g-ui"></div></div>
+      <div class="section"><div class="section-title">Menus & Popups</div><div id="g-menu"></div></div>
+      <div class="section"><div class="section-title">Interactive</div><div id="g-int"></div></div>
+      <div class="section"><div class="section-title">Chart Colors</div><div id="g-chart"></div></div>
+      <div class="section"><div class="section-title">Candle Colors</div><div id="g-bars"></div></div>
+      <div class="section"><div class="section-title">Buy / Sell</div><div id="g-buttons"></div></div>
+      <div class="section"><div class="section-title">Table Colors</div><div id="g-table"></div></div>
+      <div class="section"><div class="section-title">DOM Colors</div><div id="g-dom"></div></div>
+      <div class="section"><div class="section-title">Accent</div>
+        <div class="crow"><label>Accent</label><input type="text" class="chex" id="h-accentColor" value="#28557D" oninput="acHx(this.value)" maxlength="7"><input type="color" id="c-accentColor" value="#28557D" oninput="acCi(this.value)" onchange="acCiDone(this.value)"></div>
+        <div class="crow"><label>Focus</label><input type="text" class="chex" id="h-focusColor" value="#418CCF" oninput="fcHx(this.value)" maxlength="7"><input type="color" id="c-focusColor" value="#418CCF" oninput="fcCi(this.value)" onchange="fcCiDone(this.value)"></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-vars">
+      <div class="search-wrap"><input class="search-box" id="varSearch" type="text" placeholder="Search variables..." oninput="filterVars()"></div>
+      <div style="display:flex;gap:4px;margin-bottom:10px">
+        <button class="btn btn-sm" onclick="expandAllVars(true)">Expand</button>
+        <button class="btn btn-sm" onclick="expandAllVars(false)">Collapse</button>
+        <button class="btn btn-sm" style="margin-left:auto" onclick="showFavsOnly=!showFavsOnly;filterVars()">★ Favs</button>
+        <button class="btn btn-sm" onclick="clearVarOverrides()">Clear</button>
+      </div>
+      <div id="varsContainer"></div>
+      <div id="varsEmpty" style="text-align:center;padding:20px;color:var(--text3);font-size:11px">Loading...</div>
+    </div>
+
+    <div class="tab-content" id="tab-sels">
+      <div class="search-wrap"><input class="search-box" id="selSearch" type="text" placeholder="Search selectors..." oninput="filterSels()"></div>
+      <div style="display:flex;gap:4px;margin-bottom:10px"><button class="btn btn-sm" style="margin-left:auto" onclick="clearSelOverrides()">Clear</button></div>
+      <div id="selsContainer"></div>
+      <div id="selsEmpty" style="text-align:center;padding:20px;color:var(--text3);font-size:11px">Loading...</div>
+    </div>
+
+    <div class="tab-content" id="tab-css">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">JavaFX CSS overrides → appended to dark.css</div>
+      <textarea class="css-editor" id="customCSS" placeholder="/* Override any style */&#10;.scroll-bar .thumb {&#10;  -fx-background-color: rgb(80,80,80);&#10;}" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div class="preview-wrap">
+    <div class="preview-toolbar">
+      <span class="plabel">Live Preview</span>
+      <span style="font-size:10px;color:var(--text3);margin-left:4px" id="inspectMode">Click any element to edit</span>
+      <div class="before-after">
+        <button class="active" onclick="setBA('after')">After</button>
+        <button onclick="setBA('before')">Before</button>
+      </div>
+    </div>
+    <div class="preview" id="previewArea">
+      <div class="mw" id="mwPrev"></div>
+      <div class="prev-panels" id="panelsPrev"></div>
+    </div>
+  </div>
+</div>
+
+<div class="pv-inspector" id="pvInspector"><div class="pi-label"></div><div class="pi-vars"></div><div class="pi-hint">Click to edit</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ==================== STATE ====================
+const G={'g-bg':[{id:'main',l:'Main Panels'},{id:'secondary',l:'Chart BG'},{id:'statusBar',l:'Status Bar'},{id:'divider',l:'Dividers'},{id:'activeStation',l:'Active Panel'}],
+  'g-ui':[{id:'controlInner',l:'Controls'},{id:'chooserBg',l:'Choosers'},{id:'highlight',l:'Chart Tab'},{id:'tabSelected',l:'Tab Selected'},{id:'tabHover',l:'Tab Hover'}],
+  'g-menu':[{id:'menuBg',l:'Menu BG'},{id:'menuItemBg',l:'Menu Items'},{id:'popupBg',l:'Popup BG'},{id:'popupTitleBg',l:'Popup Title'},{id:'menuSeparator',l:'Separators'}],
+  'g-int':[{id:'toggleSelected',l:'Toggle Sel'},{id:'hoverBase',l:'Hover'},{id:'btnPressed',l:'Pressed'},{id:'menuAccent',l:'Accent'},{id:'spinnerBorder',l:'Borders'}]};
+const chartG={'g-chart':[{id:'ch_background',l:'Background'},{id:'ch_axisLine',l:'Axis'},{id:'ch_gridLine',l:'Grid'},{id:'ch_crossHair',l:'Crosshair'},{id:'ch_textFg',l:'Text'}],
+  'g-bars':[{id:'b_up',l:'Up Body'},{id:'b_upFill',l:'Up Fill'},{id:'b_upOutline',l:'Up Line'},{id:'b_down',l:'Down Body'},{id:'b_downFill',l:'Down Fill'},{id:'b_downOutline',l:'Down Line'}]};
+const buttonG={'g-buttons':[{id:'btn_buyText',l:'Buy Text'},{id:'btn_buyBg',l:'Buy BG'},{id:'btn_sellText',l:'Sell Text'},{id:'btn_sellBg',l:'Sell BG'}]};
+const tradingG={'g-table':[{id:'t_upText',l:'Up Text'},{id:'t_downText',l:'Down Text'},{id:'t_upBg',l:'Up BG'},{id:'t_downBg',l:'Down BG'},{id:'t_upArrow',l:'Up Arrow'},{id:'t_downArrow',l:'Down Arrow'}],
+  'g-dom':[{id:'d_bidColor',l:'Bid'},{id:'d_askColor',l:'Ask'},{id:'d_atBidText',l:'Bid Text'},{id:'d_atAskText',l:'Ask Text'},{id:'d_bgColor',l:'DOM BG'},{id:'d_priceText',l:'Price'},{id:'d_mboBidFill',l:'MBO Bid'},{id:'d_mboAskFill',l:'MBO Ask'}]};
+
+const P={
+  'oled-black':{n:'OLED Black',c:{main:'#050505',secondary:'#000000',statusBar:'#000000',divider:'#050505',activeStation:'#080808',controlInner:'#121212',chooserBg:'#0c0c0c',highlight:'#0f1620',tabSelected:'#1c1c1c',tabHover:'#262626',menuBg:'#0a0a0a',menuItemBg:'#0a0a0a',popupBg:'#161616',popupTitleBg:'#0f0f0f',menuSeparator:'#2d2d2d',toggleSelected:'#202020',hoverBase:'#2a2a2a',btnPressed:'#303030',menuAccent:'#262626',spinnerBorder:'#0f0f0f'}},
+  'stock-dark':{n:'Stock Dark',c:{main:'#191919',secondary:'#141414',statusBar:'#141414',divider:'#191919',activeStation:'#1e1e1e',controlInner:'#323232',chooserBg:'#282828',highlight:'#232a32',tabSelected:'#3c3c3c',tabHover:'#505050',menuBg:'#232323',menuItemBg:'#232323',popupBg:'#3c3c3c',popupTitleBg:'#323232',menuSeparator:'#646464',toggleSelected:'#4b4b4b',hoverBase:'#555555',btnPressed:'#5a5a5a',menuAccent:'#505050',spinnerBorder:'#282828'}},
+  'midnight':{n:'Midnight',c:{main:'#05080f',secondary:'#020510',statusBar:'#020408',divider:'#05080f',activeStation:'#080c16',controlInner:'#0f1520',chooserBg:'#0a0f18',highlight:'#0f1e32',tabSelected:'#141e2e',tabHover:'#1a2840',menuBg:'#080c14',menuItemBg:'#080c14',popupBg:'#101828',popupTitleBg:'#0c1220',menuSeparator:'#1e2e42',toggleSelected:'#152035',hoverBase:'#1a2a42',btnPressed:'#203248',menuAccent:'#182840',spinnerBorder:'#0c1220'}},
+  'charcoal':{n:'Charcoal',c:{main:'#181818',secondary:'#101010',statusBar:'#0c0c0c',divider:'#181818',activeStation:'#1c1c1c',controlInner:'#2a2a2a',chooserBg:'#222222',highlight:'#202830',tabSelected:'#333333',tabHover:'#404040',menuBg:'#1e1e1e',menuItemBg:'#1e1e1e',popupBg:'#2c2c2c',popupTitleBg:'#242424',menuSeparator:'#484848',toggleSelected:'#3a3a3a',hoverBase:'#454545',btnPressed:'#4a4a4a',menuAccent:'#404040',spinnerBorder:'#222222'}},
+  'purple':{n:'Purple',c:{main:'#0a0510',secondary:'#050210',statusBar:'#030108',divider:'#0a0510',activeStation:'#0e0815',controlInner:'#160f22',chooserBg:'#100a1a',highlight:'#1a1030',tabSelected:'#201530',tabHover:'#2a1e40',menuBg:'#0c0815',menuItemBg:'#0c0815',popupBg:'#181025',popupTitleBg:'#120a1e',menuSeparator:'#2e2044',toggleSelected:'#1e1535',hoverBase:'#282042',btnPressed:'#302848',menuAccent:'#221a38',spinnerBorder:'#120a1e'}},
+  'forest':{n:'Forest',c:{main:'#050a05',secondary:'#020800',statusBar:'#010500',divider:'#050a05',activeStation:'#081008',controlInner:'#0f1a0f',chooserBg:'#0a120a',highlight:'#102a15',tabSelected:'#152a18',tabHover:'#1e3820',menuBg:'#080e08',menuItemBg:'#080e08',popupBg:'#102010',popupTitleBg:'#0c180c',menuSeparator:'#1e3a1e',toggleSelected:'#153015',hoverBase:'#1a3a1a',btnPressed:'#204020',menuAccent:'#183018',spinnerBorder:'#0c180c'}}};
+
+let cc={...P['oled-black'].c};
+let cf='Monaco',cfs=10.5;
+let chartColors={ch_background:'#000000',ch_axisLine:'#2d2d2d',ch_gridLine:'#414141',ch_crossHair:'#c8c8c8',ch_textFg:'#f5f5f5'};
+let barColors={b_up:'#969696',b_upFill:'#969696',b_upOutline:'#ffffff',b_down:'#8b0000',b_downFill:'#8b0000',b_downOutline:'#ff0000'};
+let buttonColors={btn_buyText:'#000000',btn_buyBg:'#FFFFFF',btn_sellText:'#FFFFFF',btn_sellBg:'#A52A2A'};
+let buttonAlphas={btn_buyBg:'99',btn_sellBg:'99'};
+let accentColor='#28557D',focusColor='#418CCF';
+let tradingColors={t_upText:'#FFFFFF',t_downText:'#FF0000',t_upBg:'#FFFFFF',t_downBg:'#962323',t_upArrow:'#FFFFFF',t_downArrow:'#FF0000',d_bidColor:'#FF0000',d_askColor:'#FFFFFF',d_atBidText:'#FF0000',d_atAskText:'#FFFFFF',d_bgColor:'#000000',d_priceText:'#969696',d_mboBidFill:'#FFFFFF',d_mboAskFill:'#EB3232'};
+let tradingAlphas={d_bidColor:'33',d_askColor:'33',d_atBidHighlight:'66',d_atAskHighlight:'66',d_priceText:'CC'};
+let customPresets={};
+let parsedVars=[],parsedSels=[],varOverrides={},selOverrides={},rawUICSS='';
+let favorites=new Set();
+let showFavsOnly=false;
+
+// Stable candle data
+const CANDLE_DATA=[];
+{let p=50;for(let i=0;i<45;i++){const d=(Math.sin(i*0.7)*8+Math.cos(i*1.3)*6+(i%3-1)*4);p=Math.max(8,Math.min(92,p+d));CANDLE_DATA.push({h:Math.max(3,Math.abs(d)*2+4),up:d>=0});}}
+
+// ==================== UNDO / REDO ====================
+let history=[],historyIdx=-1,historyPaused=false,dragging=false;
+function getState(){return JSON.stringify({cc:{...cc},chartColors:{...chartColors},barColors:{...barColors},buttonColors:{...buttonColors},buttonAlphas:{...buttonAlphas},accentColor,focusColor,tradingColors:{...tradingColors},tradingAlphas:{...tradingAlphas},varOverrides:{...varOverrides},selOverrides:{...selOverrides},cf,cfs});}
+function snap(){
+  if(historyPaused||dragging)return;
+  const s=getState();
+  if(historyIdx>=0&&history[historyIdx]===s)return;
+  history=history.slice(0,historyIdx+1);
+  history.push(s);if(history.length>80)history.shift();
+  historyIdx=history.length-1;
+  updUndoBtn();
+}
+function snapBeforeDrag(){if(!dragging){dragging=true;snap();}}
+function snapAfterDrag(){dragging=false;snap();}
+function restore_state(s){
+  const d=JSON.parse(s);historyPaused=true;
+  cc={...d.cc};Object.assign(chartColors,d.chartColors);Object.assign(barColors,d.barColors);
+  Object.assign(buttonColors,d.buttonColors);Object.assign(buttonAlphas,d.buttonAlphas);
+  accentColor=d.accentColor;focusColor=d.focusColor;
+  Object.assign(tradingColors,d.tradingColors);Object.assign(tradingAlphas,d.tradingAlphas);
+  varOverrides={...d.varOverrides};selOverrides={...d.selOverrides};
+  if(d.cf){cf=d.cf;document.getElementById('fontFamily').value=cf;}
+  if(d.cfs){cfs=d.cfs;document.getElementById('fontSize').value=cfs;document.getElementById('fsv').textContent=cfs+'pt';}
+  syncAllInputs();renderVars();renderSels();clrPreset();up();
+  historyPaused=false;
+}
+function undo(){if(historyIdx>0){historyIdx--;restore_state(history[historyIdx]);updUndoBtn();}}
+function redo(){if(historyIdx<history.length-1){historyIdx++;restore_state(history[historyIdx]);updUndoBtn();}}
+function updUndoBtn(){document.getElementById('undoBtn').disabled=historyIdx<=0;document.getElementById('redoBtn').disabled=historyIdx>=history.length-1;}
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='z'){
+    const el=document.activeElement;
+    const isText=el&&((el.tagName==='INPUT'&&(el.type==='text'||el.type==='number'||el.type==='search'))||el.tagName==='TEXTAREA'||el.isContentEditable);
+    if(!isText){e.preventDefault();e.shiftKey?redo():undo();}
+  }
+});
+// Expose globally for Electron's before-input-event
+window.__mwts_undo=undo;
+window.__mwts_redo=redo;
+
+// Advanced tabs toggle
+let advVisible=false;
+function toggleAdvanced(){advVisible=!advVisible;document.querySelectorAll('.adv-tab').forEach(t=>t.style.display=advVisible?'':'none');document.getElementById('advToggle').style.color=advVisible?'var(--accent)':'';if(!advVisible){switchTab('quick');}}
+
+// ==================== BEFORE / AFTER ====================
+let originalState=null,baMode='after';
+function captureOriginal(){originalState=JSON.stringify({cc:{...cc},chartColors:{...chartColors},barColors:{...barColors},buttonColors:{...buttonColors},buttonAlphas:{...buttonAlphas},accentColor,focusColor,tradingColors:{...tradingColors},tradingAlphas:{...tradingAlphas}});}
+function setBA(mode){
+  baMode=mode;
+  document.querySelectorAll('.before-after button').forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase()===mode));
+  if(mode==='before'&&originalState){
+    // Render with original colors without touching current state
+    renderPreview(JSON.parse(originalState));
+  } else {
+    renderPreview(null); // use current state
+  }
+}
+
+// ==================== AUTO THEME ====================
+function hexToHSL(h){const r=parseInt(h.slice(1,3),16)/255,g=parseInt(h.slice(3,5),16)/255,b=parseInt(h.slice(5,7),16)/255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let hh,s,l=(mx+mn)/2;if(mx===mn){hh=s=0;}else{const d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);switch(mx){case r:hh=((g-b)/d+(g<b?6:0))/6;break;case g:hh=((b-r)/d+2)/6;break;case b:hh=((r-g)/d+4)/6;break;}}return{h:hh*360,s:s*100,l:l*100};}
+function hslToHex(h,s,l){h=((h%360)+360)%360;s=Math.max(0,Math.min(100,s))/100;l=Math.max(0,Math.min(100,l))/100;const a=s*Math.min(l,1-l);const f=n=>{const k=(n+h/30)%12;const c=l-a*Math.max(Math.min(k-3,9-k,1),-1);return Math.round(255*c).toString(16).padStart(2,'0');};return'#'+f(0)+f(8)+f(4);}
+function showAutoTheme(){
+  const ov=document.createElement('div');ov.className='modal-overlay';
+  ov.innerHTML=`<div class="modal"><h2>Auto Theme Generator</h2>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">Pick a base dark color and an accent. The algorithm derives all 20+ colors.</p>
+    <div class="crow"><label>Base Dark</label><input type="text" class="chex" id="at-base" value="#050505" maxlength="7"><input type="color" id="atc-base" value="#050505" oninput="document.getElementById('at-base').value=this.value"></div>
+    <div class="crow"><label>Accent</label><input type="text" class="chex" id="at-accent" value="#6366f1" maxlength="7"><input type="color" id="atc-accent" value="#6366f1" oninput="document.getElementById('at-accent').value=this.value"></div>
+    <div class="mactions"><button class="btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button><button class="btn btn-primary" onclick="applyAutoTheme()">Generate</button></div></div>`;
+  document.body.appendChild(ov);ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+}
+function applyAutoTheme(){
+  const base=document.getElementById('at-base').value||document.getElementById('atc-base').value;
+  const accent=document.getElementById('at-accent').value||document.getElementById('atc-accent').value;
+  const bh=hexToHSL(base),ah=hexToHSL(accent);
+  const d=(h,s,l)=>hslToHex(h,s,l);
+  cc={main:d(bh.h,bh.s,bh.l),secondary:d(bh.h,bh.s,Math.max(0,bh.l-2)),statusBar:d(bh.h,bh.s,Math.max(0,bh.l-2)),divider:d(bh.h,bh.s,bh.l),activeStation:d(bh.h,bh.s,bh.l+2),
+    controlInner:d(bh.h,Math.min(bh.s+3,15),bh.l+7),chooserBg:d(bh.h,bh.s+2,bh.l+3),
+    highlight:d(ah.h,Math.min(25,ah.s),bh.l+5),tabSelected:d(bh.h,bh.s+2,bh.l+10),tabHover:d(bh.h,bh.s+2,bh.l+15),
+    menuBg:d(bh.h,bh.s,bh.l+1),menuItemBg:d(bh.h,bh.s,bh.l+1),popupBg:d(bh.h,bh.s+2,bh.l+7),popupTitleBg:d(bh.h,bh.s+1,bh.l+4),
+    menuSeparator:d(bh.h,bh.s+2,bh.l+15),toggleSelected:d(bh.h,bh.s+2,bh.l+10),hoverBase:d(bh.h,bh.s+2,bh.l+14),
+    btnPressed:d(bh.h,bh.s+2,bh.l+17),menuAccent:d(bh.h,bh.s+2,bh.l+13),spinnerBorder:d(bh.h,bh.s,bh.l+4)};
+  accentColor=accent;focusColor=d(ah.h,Math.min(ah.s+10,80),Math.min(ah.l+15,60));
+  syncAllInputs();document.getElementById('c-accentColor').value=accentColor;document.getElementById('h-accentColor').value=accentColor;
+  document.getElementById('c-focusColor').value=focusColor;document.getElementById('h-focusColor').value=focusColor;
+  clrPreset();up();snap();document.querySelector('.modal-overlay')?.remove();toast('Theme generated!','ok');
+}
+
+// ==================== TAB + INIT ====================
+function switchTab(t){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active',c.id==='tab-'+t));}
+function syncAllInputs(){for(const[id,v]of Object.entries({...cc,...chartColors,...barColors,...buttonColors,...tradingColors})){const ce=document.getElementById('c-'+id),he=document.getElementById('h-'+id);if(ce)ce.value=v;if(he)he.value=v;}}
+
+function init(){
+  const pe=document.getElementById('presets');
+  for(const[k,p]of Object.entries(P)){const b=document.createElement('div');b.className='preset'+(k==='oled-black'?' active':'');b.dataset.k=k;b.innerHTML=`<div class="preset-name">${p.n}</div><div class="preset-bar"><span style="background:${p.c.main}"></span><span style="background:${p.c.secondary}"></span><span style="background:${p.c.controlInner}"></span><span style="background:${p.c.tabSelected}"></span></div>`;b.onclick=()=>resetPreset(k);pe.appendChild(b);}
+  const allG={...G,...chartG,...buttonG,...tradingG};
+  for(const[gid,cols]of Object.entries(allG)){const el=document.getElementById(gid);if(!el)continue;const st=gid==='g-chart'?chartColors:gid==='g-bars'?barColors:gid==='g-buttons'?buttonColors:(gid==='g-table'||gid==='g-dom')?tradingColors:cc;
+    for(const c of cols){const v=st[c.id]||'#000000';const r=document.createElement('div');r.className='crow';r.id='crow-'+c.id;r.innerHTML=`<label>${c.l}</label><input type="text" class="chex" id="h-${c.id}" value="${v}" oninput="anyHex('${c.id}',this.value)" maxlength="7"><input type="color" id="c-${c.id}" value="${v}" oninput="anyColor('${c.id}',this.value)" onchange="anyColorDone('${c.id}',this.value)">`;el.appendChild(r);}}
+  up();snap();captureOriginal();checkMW();loadChartColors();loadTradingColors();loadCustomPresets();loadUITheme();loadFavorites();
+  setupPreviewInteraction();
+}
+
+function anyColor(id,v){snapBeforeDrag();const s=getStore(id);if(s){s[id]=v;document.getElementById('h-'+id).value=v;}clrPreset();up();}
+function anyColorDone(id,v){const s=getStore(id);if(s){s[id]=v;document.getElementById('h-'+id).value=v;}clrPreset();up();snapAfterDrag();}
+function anyHex(id,v){if(!/^#[0-9a-f]{6}$/i.test(v))return;const s=getStore(id);if(s){s[id]=v;document.getElementById('c-'+id).value=v;}clrPreset();up();snap();}
+function getStore(id){if(cc.hasOwnProperty(id))return cc;if(chartColors.hasOwnProperty(id))return chartColors;if(barColors.hasOwnProperty(id))return barColors;if(buttonColors.hasOwnProperty(id))return buttonColors;if(tradingColors.hasOwnProperty(id))return tradingColors;return null;}
+function acCi(v){snapBeforeDrag();accentColor=v;document.getElementById('h-accentColor').value=v;up();}
+function acCiDone(v){accentColor=v;document.getElementById('h-accentColor').value=v;up();snapAfterDrag();}
+function acHx(v){if(/^#[0-9a-f]{6}$/i.test(v)){accentColor=v;document.getElementById('c-accentColor').value=v;up();snap();}}
+function fcCi(v){snapBeforeDrag();focusColor=v;document.getElementById('h-focusColor').value=v;up();}
+function fcCiDone(v){focusColor=v;document.getElementById('h-focusColor').value=v;up();snapAfterDrag();}
+function fcHx(v){if(/^#[0-9a-f]{6}$/i.test(v)){focusColor=v;document.getElementById('c-focusColor').value=v;up();snap();}}
+function resetPreset(k){cc={...P[k].c};syncAllInputs();document.querySelectorAll('.preset').forEach(b=>b.classList.toggle('active',b.dataset.k===k));up();snap();}
+function clrPreset(){document.querySelectorAll('.preset').forEach(b=>b.classList.remove('active'));}
+
+// ==================== INTERACTIVE PREVIEW ====================
+const EDIT_MAP={
+  menuBg:{label:'Menu Bar',section:'g-menu',ids:['menuBg']},
+  main:{label:'Main Panel',section:'g-bg',ids:['main']},
+  controlInner:{label:'Control',section:'g-ui',ids:['controlInner']},
+  toggleSelected:{label:'Toggle Selected',section:'g-int',ids:['toggleSelected']},
+  highlight:{label:'Active Tab',section:'g-ui',ids:['highlight']},
+  tabSelected:{label:'Tab Selected',section:'g-ui',ids:['tabSelected']},
+  tabHover:{label:'Tab Hover',section:'g-ui',ids:['tabHover']},
+  ch_background:{label:'Chart Background',section:'g-chart',ids:['ch_background']},
+  ch_gridLine:{label:'Grid Lines',section:'g-chart',ids:['ch_gridLine']},
+  ch_axisLine:{label:'Axis',section:'g-chart',ids:['ch_axisLine','ch_textFg']},
+  candles:{label:'Candles',section:'g-bars',ids:['b_upFill','b_downFill','b_upOutline','b_downOutline']},
+  d_bgColor:{label:'DOM Panel',section:'g-dom',ids:['d_bgColor','d_bidColor','d_askColor']},
+  btn_buy:{label:'Buy Button',section:'g-buttons',ids:['btn_buyBg','btn_buyText']},
+  btn_sell:{label:'Sell Button',section:'g-buttons',ids:['btn_sellBg','btn_sellText']},
+  statusBar:{label:'Status Bar',section:'g-bg',ids:['statusBar']},
+  menuItemBg:{label:'Menu Item',section:'g-menu',ids:['menuItemBg']},
+  hoverBase:{label:'Hover State',section:'g-int',ids:['hoverBase']},
+  menuSeparator:{label:'Separator',section:'g-menu',ids:['menuSeparator']},
+  popupBg:{label:'Popup',section:'g-menu',ids:['popupBg','popupTitleBg']},
+  chooserBg:{label:'Chooser',section:'g-ui',ids:['chooserBg']},
+  t_up:{label:'Up Row',section:'g-table',ids:['t_upText','t_upBg']},
+  t_down:{label:'Down Row',section:'g-table',ids:['t_downText','t_downBg']},
+  secondary:{label:'Chart Background',section:'g-bg',ids:['secondary']},
+  divider:{label:'Divider',section:'g-bg',ids:['divider']},
+  spinnerBorder:{label:'Input Border',section:'g-int',ids:['spinnerBorder']},
+  accentColor:{label:'Accent Color',section:null,ids:['accentColor']},
+};
+
+let selectedPvEl=null;
+function setupPreviewInteraction(){
+  const pv=document.getElementById('previewArea');
+  const insp=document.getElementById('pvInspector');
+  pv.addEventListener('mousemove',e=>{
+    const el=e.target.closest('[data-edit]');
+    if(el){
+      const m=EDIT_MAP[el.dataset.edit];
+      if(m){
+        insp.querySelector('.pi-label').textContent=m.label;
+        insp.querySelector('.pi-vars').textContent=m.ids.map(id=>{const s=getStore(id);return s?id+': '+s[id]:id;}).join(', ');
+        insp.classList.add('show');
+        const r=el.getBoundingClientRect();
+        insp.style.left=Math.min(r.left,window.innerWidth-270)+'px';
+        insp.style.top=(r.top-50)+'px';
+      }
+    } else{insp.classList.remove('show');}
+  });
+  pv.addEventListener('mouseleave',()=>insp.classList.remove('show'));
+  pv.addEventListener('click',e=>{
+    const el=e.target.closest('[data-edit]');
+    if(!el)return;
+    const m=EDIT_MAP[el.dataset.edit];if(!m)return;
+    // Clear previous selection
+    document.querySelectorAll('.pv-selected').forEach(x=>x.classList.remove('pv-selected'));
+    el.classList.add('pv-selected');selectedPvEl=el;
+    // Jump to sidebar section
+    switchTab('quick');
+    const first=m.ids[0];
+    const crow=document.getElementById('crow-'+first);
+    if(crow){
+      crow.scrollIntoView({behavior:'smooth',block:'center'});
+      crow.classList.add('crow-highlight');
+      setTimeout(()=>crow.classList.remove('crow-highlight'),1500);
+    }
+    insp.classList.remove('show');
+  });
+}
+
+function flashPreviewElement(editId){
+  const el=document.querySelector(`[data-edit="${editId}"]`);
+  if(el){el.scrollIntoView({behavior:'smooth',block:'nearest'});el.classList.add('pv-flash');setTimeout(()=>el.classList.remove('pv-flash'),500);}
+}
+
+// ==================== CSS PARSER ====================
+function parseJavaFXCSS(css){
+  const variables=[],selectors=[];const clean=css.replace(/\/\*[\s\S]*?\*\//g,'');
+  let i=0;while(i<clean.length){const ss=clean.indexOf('{',i);if(ss===-1)break;const st=clean.substring(i,ss).trim();let d=1,j=ss+1;while(j<clean.length&&d>0){if(clean[j]==='{')d++;if(clean[j]==='}')d--;j++;}const body=clean.substring(ss+1,j-1);i=j;if(!st)continue;
+    const props=[];const pr=/([\w-]+)\s*:\s*([^;]+);/g;let m;while((m=pr.exec(body))!==null)props.push({prop:m[1].trim(),value:m[2].trim()});
+    if(st==='.root'||st.includes('.root')){for(const p of props){if(p.prop.startsWith('-'))variables.push({name:p.prop,value:p.value,isColor:isCV(p.value),group:getVG(p.prop)});}}
+    else if(props.length>0)selectors.push({selector:st,props});}
+  return{variables,selectors};
+}
+function isCV(v){return/^(rgb|rgba|#[0-9a-f]|derive|ladder|transparent$|black$|white$)/i.test(v.trim())||/^-[a-z]/.test(v.trim());}
+function getVG(n){if(n.startsWith('-theme-color-mw-'))return'MotiveWave UI';if(n.startsWith('-theme-color-fx-'))return'JavaFX';if(n.includes('datepicker')||n.includes('timepicker'))return'Pickers';if(n.startsWith('-theme-color-'))return'Theme';if(n.startsWith('-mw-'))return'MW Internal';if(n.startsWith('-tb-'))return'Toolbar';if(n.startsWith('-fx-'))return'JavaFX Base';return'Other';}
+function tryPC(v){const m=v.match(/^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);if(m)return'#'+[m[1],m[2],m[3]].map(n=>parseInt(n).toString(16).padStart(2,'0')).join('');const h=v.match(/^#([0-9a-f]{3,8})$/i);if(h){let x=h[1];if(x.length===3)x=x[0]+x[0]+x[1]+x[1]+x[2]+x[2];return'#'+x.slice(0,6);}return null;}
+
+// ==================== VARIABLE EXPLORER ====================
+async function loadUITheme(){
+  if(!window.electronAPI?.readUITheme){document.getElementById('varsEmpty').innerHTML='Open in app to load';document.getElementById('selsEmpty').innerHTML='Open in app to load';return;}
+  const r=await window.electronAPI.readUITheme();if(!r.ok){document.getElementById('varsEmpty').innerHTML='Error: '+r.error;return;}
+  rawUICSS=r.uiCSS||'';const p=parseJavaFXCSS(rawUICSS);parsedVars=p.variables;parsedSels=p.selectors;renderVars();renderSels();
+}
+function renderVars(){
+  const c=document.getElementById('varsContainer'),e=document.getElementById('varsEmpty');if(!parsedVars.length){e.style.display='block';return;}e.style.display='none';
+  const groups={};for(const v of parsedVars){if(!groups[v.group])groups[v.group]=[];groups[v.group].push(v);}
+  c.innerHTML='';const search=(document.getElementById('varSearch')?.value||'').toLowerCase();
+  // Pinned favorites first
+  if(favorites.size>0){
+    const faved=parsedVars.filter(v=>favorites.has(v.name)&&(!search||v.name.toLowerCase().includes(search)));
+    if(faved.length>0){const gd=document.createElement('div');gd.className='var-group';gd.innerHTML=`<div class="var-group-title"><span class="arrow open">▶</span> ★ Favorites <span class="var-count">${faved.length}</span></div>`;
+      const bd=document.createElement('div');bd.className='var-group-body';for(const v of faved)bd.appendChild(mkVarRow(v));gd.appendChild(bd);c.appendChild(gd);}
+  }
+  if(showFavsOnly)return;
+  for(const[gn,vars]of Object.entries(groups)){
+    const fl=search?vars.filter(v=>v.name.toLowerCase().includes(search)||v.value.toLowerCase().includes(search)):vars;if(!fl.length)continue;
+    const gd=document.createElement('div');gd.className='var-group';gd.innerHTML=`<div class="var-group-title" onclick="this.querySelector('.arrow').classList.toggle('open');this.nextElementSibling.classList.toggle('collapsed')"><span class="arrow${search?' open':''}">▶</span> ${gn} <span class="var-count">${fl.length}</span></div>`;
+    const bd=document.createElement('div');bd.className='var-group-body'+(search?'':' collapsed');for(const v of fl)bd.appendChild(mkVarRow(v));gd.appendChild(bd);c.appendChild(gd);}
+  updateBadges();
+}
+function mkVarRow(v){
+  const row=document.createElement('div');row.className='var-row';const hex=tryPC(v.value);const ov=varOverrides[v.name]!==undefined;const dv=ov?varOverrides[v.name]:v.value;
+  let cp='';if(v.isColor&&hex){const pv=ov?(tryPC(varOverrides[v.name])||hex):hex;cp=`<input type="color" value="${pv}" onchange="setVarOv('${v.name}','rgb('+parseInt(this.value.slice(1,3),16)+', '+parseInt(this.value.slice(3,5),16)+', '+parseInt(this.value.slice(5,7),16)+')')">`;}
+  const isFav=favorites.has(v.name);
+  row.innerHTML=`<button class="fav-btn${isFav?' active':''}" onclick="toggleFav('${v.name}',this)">★</button><span class="var-name" title="${v.name}">${v.name}</span><input class="var-val${ov?' changed':''}" value="${dv}" data-var="${v.name}" onchange="setVarOv('${v.name}',this.value)" onfocus="this.select()">${cp}`;
+  return row;
+}
+function setVarOv(n,v){if(!v||v===parsedVars.find(x=>x.name===n)?.value)delete varOverrides[n];else varOverrides[n]=v;const i=document.querySelector(`input[data-var="${n}"]`);if(i){i.value=v;i.classList.toggle('changed',!!varOverrides[n]);}updateBadges();up();snap();}
+function clearVarOverrides(){varOverrides={};renderVars();up();}
+function filterVars(){renderVars();}
+function expandAllVars(o){document.querySelectorAll('.var-group-body').forEach(b=>b.classList.toggle('collapsed',!o));document.querySelectorAll('.var-group-title .arrow').forEach(a=>a.classList.toggle('open',o));}
+
+// Favorites
+function toggleFav(name,btn){if(favorites.has(name)){favorites.delete(name);btn.classList.remove('active');}else{favorites.add(name);btn.classList.add('active');}saveFavorites();if(showFavsOnly)renderVars();}
+function saveFavorites(){if(window.electronAPI)localStorage.setItem('mwts-favs',JSON.stringify([...favorites]));}
+function loadFavorites(){try{const f=JSON.parse(localStorage.getItem('mwts-favs')||'[]');favorites=new Set(f);}catch{}}
+
+// ==================== SELECTOR EXPLORER ====================
+function renderSels(){
+  const c=document.getElementById('selsContainer'),e=document.getElementById('selsEmpty');if(!parsedSels.length){e.style.display='block';return;}e.style.display='none';c.innerHTML='';
+  const search=(document.getElementById('selSearch')?.value||'').toLowerCase();
+  for(const s of parsedSels){if(search&&!s.selector.toLowerCase().includes(search)&&!s.props.some(p=>p.prop.toLowerCase().includes(search)))continue;
+    const it=document.createElement('div');it.className='sel-item';const ho=s.props.some(p=>selOverrides[s.selector+'|||'+p.prop]!==undefined);
+    it.innerHTML=`<div class="sel-header" onclick="this.querySelector('.arrow').classList.toggle('open');this.nextElementSibling.classList.toggle('open')"><span class="arrow">▶</span><span class="sel-name">${s.selector}</span><span class="sel-count">${s.props.length}${ho?' ✎':''}</span></div>`;
+    const bd=document.createElement('div');bd.className='sel-body';
+    for(const p of s.props){const k=s.selector+'|||'+p.prop;const ov=selOverrides[k]!==undefined;const dv=ov?selOverrides[k]:p.value;const hex=tryPC(p.value);
+      const pd=document.createElement('div');pd.className='sel-prop';let cp='';if(hex){const pv=ov?(tryPC(selOverrides[k])||hex):hex;cp=`<input type="color" value="${pv}" onchange="setSelOv('${s.selector.replace(/'/g,"\\'")}','${p.prop}','rgb('+parseInt(this.value.slice(1,3),16)+','+parseInt(this.value.slice(3,5),16)+','+parseInt(this.value.slice(5,7),16)+')')" style="width:14px;height:14px;border:1px solid var(--border);border-radius:2px;flex-shrink:0">`;}
+      pd.innerHTML=`<span class="prop-name">${p.prop}</span><input class="prop-val${ov?' changed':''}" value="${dv}" data-key="${k}" onchange="setSelOv('${s.selector.replace(/'/g,"\\'")}','${p.prop}',this.value)" onfocus="this.select()">${cp}`;bd.appendChild(pd);}
+    it.appendChild(bd);c.appendChild(it);}updateBadges();
+}
+function setSelOv(sel,prop,val){const k=sel+'|||'+prop;const orig=parsedSels.find(s=>s.selector===sel)?.props.find(p=>p.prop===prop)?.value;if(!val||val===orig)delete selOverrides[k];else selOverrides[k]=val;updateBadges();up();snap();}
+function clearSelOverrides(){selOverrides={};renderSels();up();}
+function filterSels(){renderSels();}
+function updateBadges(){const vb=document.getElementById('varBadge'),sb=document.getElementById('selBadge');const vc=Object.keys(varOverrides).length,sc=Object.keys(selOverrides).length;vb.textContent=vc||'';vb.dataset.c=vc;sb.textContent=sc||'';sb.dataset.c=sc;}
+
+// ==================== PREVIEW ====================
+function up(){
+  cf=document.getElementById('fontFamily').value;cfs=parseFloat(document.getElementById('fontSize').value);
+  if(baMode==='before')return; // don't re-render preview when viewing "before"
+  renderPreview(null);
+}
+function renderPreview(override){
+  const c=override?.cc||cc;
+  const _chartColors=override?.chartColors||chartColors;
+  const _barColors=override?.barColors||barColors;
+  const _buttonColors=override?.buttonColors||buttonColors;
+  const _tradingColors=override?.tradingColors||tradingColors;
+  const _tradingAlphas=override?.tradingAlphas||tradingAlphas;
+  const _accentColor=override?.accentColor||accentColor;
+  const f=cf,fs=(cfs/10.5*10)+'px';
+  const bc=_barColors,tc=_tradingColors,ta=_tradingAlphas,btc=_buttonColors,chc=_chartColors,ac=_accentColor;
+  let cndl='';for(const cd of CANDLE_DATA){cndl+=`<div class="candle" style="height:${cd.h}px;background:${cd.up?bc.b_upFill:bc.b_downFill};border:1px solid ${cd.up?bc.b_upOutline:bc.b_downOutline}"></div>`;}
+  const domP=[21525,21500,21475,21450,21425,21400,21375,21350,21325,21300];let domR='';
+  for(let i=0;i<domP.length;i++){const isA=i<5;const vol=[42,28,15,8,55,33,67,21,45,12][i];const bgA=isA?ta.d_askColor||'33':ta.d_bidColor||'33';const bgC=isA?tc.d_askColor:tc.d_bidColor;const w=Math.min(100,vol*1.2);
+    domR+=`<div class="mw-dom-row" data-edit="d_bgColor" style="background:${c.main};position:relative"><div style="position:absolute;${isA?'right':'left'}:0;top:0;bottom:0;width:${w}%;background:${bgC}${bgA}"></div><span style="color:${tc.d_priceText};position:relative;z-index:1">${domP[i]}</span><span style="color:${isA?tc.d_atAskText:tc.d_atBidText};position:relative;z-index:1;font-weight:600">${vol}</span></div>`;}
+  const axY=['21550','21500','21450','21400','21350','21300','21250'].map(p=>`<span>${p}</span>`).join('');
+  const axX=['10:00','10:15','10:30','10:45','11:00','11:15'].map(t=>`<span>${t}</span>`).join('');
+
+  document.getElementById('mwPrev').innerHTML=`
+    <div class="mw-menubar" data-edit="menuBg" style="background:${c.menuBg};font-family:${f};font-size:${fs}"><span>File</span><span>Edit</span><span>View</span><span>Chart</span><span>Tools</span><span>Account</span></div>
+    <div class="mw-toolbar" data-edit="main" style="background:${c.main};font-family:${f}">
+      <span class="ctl" data-edit="controlInner" style="background:${c.controlInner}">ENQH26</span>
+      <span class="ctl" data-edit="controlInner" style="background:${c.controlInner}">15m</span>
+      <div class="sep" data-edit="divider" style="background:${c.divider}"></div>
+      <span class="ctl" data-edit="toggleSelected" style="background:${c.toggleSelected}">VWAP</span>
+      <span class="ctl" data-edit="controlInner" style="background:${c.controlInner}">Vol</span>
+      <span class="ctl" data-edit="controlInner" style="background:${c.controlInner}">OF</span></div>
+    <div class="mw-tabs" data-edit="main" style="background:${c.main};font-family:${f}">
+      <div class="mw-tab" style="color:#555">1h</div><div class="mw-tab" style="color:#555">30m</div>
+      <div class="mw-tab" data-edit="highlight" style="background:${c.highlight};color:#fff;border-bottom:2px solid ${ac}">15m</div>
+      <div class="mw-tab" style="color:#555">5m</div><div class="mw-tab" style="color:#555">1m</div>
+      <div style="flex:1"></div>
+      <div class="mw-tab" data-edit="tabSelected" style="background:${c.tabSelected};color:#aaa;font-size:7px">Chart 1</div>
+      <div class="mw-tab" data-edit="tabHover" style="background:${c.tabHover};color:#666;font-size:7px">Chart 2</div></div>
+    <div class="mw-body">
+      <div class="mw-chart" data-edit="ch_background" style="background:${chc.ch_background};font-family:${f}">
+        <div class="grid" style="background-image:linear-gradient(${chc.ch_gridLine}22 1px,transparent 1px),linear-gradient(90deg,${chc.ch_gridLine}22 1px,transparent 1px);background-size:60px 40px"></div>
+        <div class="wm" style="color:${chc.ch_textFg};font-family:${f}">ENQH26</div>
+        <div class="candles" data-edit="candles">${cndl}</div>
+        <div class="axis-y" data-edit="ch_axisLine" style="color:${chc.ch_textFg};border-color:${chc.ch_axisLine};background:${c.main}88">${axY}</div>
+        <div class="axis-x" data-edit="ch_axisLine" style="color:${chc.ch_textFg};border-color:${chc.ch_axisLine};background:${c.main}88">${axX}</div>
+        <div style="position:absolute;top:35%;left:10px;right:46px;height:1px;background:${chc.ch_crossHair};opacity:.3"></div>
+        <div style="position:absolute;top:0;bottom:18px;left:55%;width:1px;background:${chc.ch_crossHair};opacity:.3"></div></div>
+      <div class="mw-dom" data-edit="d_bgColor" style="background:${tc.d_bgColor};font-family:${f}">
+        <div class="mw-dom-hdr" data-edit="controlInner" style="background:${c.controlInner};color:${chc.ch_textFg}">DOM</div>
+        ${domR}
+        <div class="mw-dom-btns">
+          <div class="dbtn" data-edit="btn_buy" style="background:${btc.btn_buyBg};color:${btc.btn_buyText}">BUY</div>
+          <div class="dbtn" data-edit="btn_sell" style="background:${btc.btn_sellBg};color:${btc.btn_sellText}">SELL</div></div></div></div>
+    <div class="mw-statusbar" data-edit="statusBar" style="background:${c.statusBar};font-family:${f};color:#555">
+      <span data-edit="accentColor" style="color:${ac}">● Connected</span><span>DEMO</span><span>ENQH26 21,432</span>
+      <span style="color:${tc.t_upText}">▲ +12</span><span style="margin-left:auto">Feb 26</span></div>`;
+
+  document.getElementById('panelsPrev').innerHTML=`
+    <div class="prev-panel" data-edit="menuBg" style="background:${c.menuBg};font-family:${f};font-size:${fs}">
+      <div class="pp-title">Context Menu</div>
+      <div class="pp-item" data-edit="menuItemBg" style="background:${c.menuItemBg}">New Chart</div>
+      <div class="pp-item" data-edit="hoverBase" style="background:${c.hoverBase}">Properties</div>
+      <div class="pp-sep" data-edit="menuSeparator" style="background:${c.menuSeparator}"></div>
+      <div class="pp-item" data-edit="menuItemBg" style="background:${c.menuItemBg};color:#666">Delete</div></div>
+    <div class="prev-panel" data-edit="popupBg" style="background:${c.popupBg};font-family:${f};font-size:${fs}">
+      <div class="pp-title" style="background:${c.popupTitleBg};margin:-7px -7px 5px;padding:4px 7px;border-radius:4px 4px 0 0">Chooser</div>
+      <div style="padding:3px 6px;background:${c.controlInner};border:1px solid ${c.spinnerBorder};border-radius:3px;font-size:8px;margin-bottom:4px;color:#888" data-edit="spinnerBorder">Search...</div>
+      <div class="pp-item" data-edit="chooserBg" style="background:${c.chooserBg};border-radius:2px;margin-bottom:1px">VWAP</div>
+      <div class="pp-item" data-edit="toggleSelected" style="background:${c.toggleSelected};border-radius:2px;margin-bottom:1px;border-left:2px solid ${ac}">EMA ✓</div>
+      <div class="pp-item" data-edit="chooserBg" style="background:${c.chooserBg};border-radius:2px">RSI</div></div>
+    <div class="prev-panel" data-edit="main" style="background:${c.main};font-family:${f};font-size:${fs}">
+      <div class="pp-title">Watchlist</div>
+      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>NQ</span><span style="color:${tc.t_upText};background:${tc.t_upBg}22;padding:0 3px;border-radius:2px">21,432 ▲</span></div>
+      <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>ES</span><span style="color:${tc.t_downText};background:${tc.t_downBg}22;padding:0 3px;border-radius:2px">5,892 ▼</span></div>
+      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>GC</span><span style="color:${tc.t_upText}">2,045 ▲</span></div>
+      <div style="display:flex;gap:2px;padding:3px 0;margin-top:3px">
+        <div data-edit="btn_buy" style="background:${btc.btn_buyBg};color:${btc.btn_buyText};padding:3px 6px;border-radius:3px;font-size:7px;font-weight:700;flex:1;text-align:center">Buy</div>
+        <div data-edit="btn_sell" style="background:${btc.btn_sellBg};color:${btc.btn_sellText};padding:3px 6px;border-radius:3px;font-size:7px;font-weight:700;flex:1;text-align:center">Sell</div></div></div>`;
+}
+
+// ==================== CSS GEN ====================
+function h2r(h){return`rgb(${parseInt(h.slice(1,3),16)}, ${parseInt(h.slice(3,5),16)}, ${parseInt(h.slice(5,7),16)})`;}
+function genCSS(){
+  const c=cc,f=cf;
+  let css=`.root {\n    -fx-font-family: '${f}';\n    -theme-color-main: ${h2r(c.main)};\n    -theme-color-secondary: ${h2r(c.secondary)};\n    -theme-color-fx-control-inner-background: ${h2r(c.controlInner)};\n    -theme-color-chooser-bg: ${h2r(c.chooserBg)};\n    -theme-color-mw-popup-pane-bg: ${h2r(c.popupBg)};\n    -theme-color-mw-popup-pane-title-bg: ${h2r(c.popupTitleBg)};\n    -theme-color-popup-shadow: rgb(0,0,0);\n    -theme-color-mw-status-bar-bg: ${h2r(c.statusBar)};\n    -theme-color-mw-chart-split-pane-divider: ${h2r(c.divider)};\n    -theme-color-mw-active-station: ${h2r(c.activeStation)};\n    -theme-color-mw-highlight: ${h2r(c.highlight)};\n    -theme-color-mw-tab-selected: ${h2r(c.tabSelected)};\n    -theme-color-mw-tab-hover: ${h2r(c.tabHover)};\n    -theme-color-tabpane-selected-text: -mw-tab-selected-text;\n    -theme-color-context-menu-border: derive(-theme-color-main, 20%);\n    -theme-color-mw-context-menu-bg: ${h2r(c.menuBg)};\n    -theme-color-mw-context-menu-border: ${h2r(c.menuBg)};\n    -theme-color-mw-menu-item-bg: ${h2r(c.menuItemBg)};\n    -theme-color-mw-menu-item-separator: ${h2r(c.menuSeparator)};\n    -theme-color-mw-context-menu-accent: ${h2r(c.menuAccent)};\n    -theme-color-fx-spinner-border: ${h2r(c.spinnerBorder)};\n    -theme-color-toggle-btn-selected: ${h2r(c.toggleSelected)};\n    -theme-color-hover-base: ${h2r(c.hoverBase)};\n    -theme-color-btn-pressed: ${h2r(c.btnPressed)};\n    -theme-color-btn-hover: derive(-theme-color-toggle-btn-selected, -25%);\n    -darkest-black: rgb(0,0,0);\n    -mw-menu-bar-bg1: -theme-color-mw-context-menu-bg;\n    -mw-menu-bar-bg2: -theme-color-mw-context-menu-bg;\n    -tb-blue: ${h2r(buttonColors.btn_buyBg)};\n    -tb-red: ${h2r(buttonColors.btn_sellBg)};\n    -tb-green: rgb(25,150,50);\n    -fx-accent: ${h2r(accentColor)};\n    -accent-fill: ${h2r(accentColor).replace(')',', 0.3)')};\n    -fx-focus-color: ${h2r(focusColor)};\n    -fx-faint-focus-color: ${h2r(focusColor).replace(')',', 0.13)')};`;
+  for(const[n,v]of Object.entries(varOverrides))css+=`\n    ${n}: ${v};`;
+  css+='\n}\n';
+  css+=`.button-blue { -fx-color: ${h2r(buttonColors.btn_buyBg)}; -fx-text-fill: ${h2r(buttonColors.btn_buyText)}; }\n.button-red { -fx-color: ${h2r(buttonColors.btn_sellBg)}; -fx-text-fill: ${h2r(buttonColors.btn_sellText)}; }\n`;
+  const sg={};for(const[k,v]of Object.entries(selOverrides)){const[sel,prop]=k.split('|||');if(!sg[sel])sg[sel]={};sg[sel][prop]=v;}
+  for(const[sel,props]of Object.entries(sg)){css+=`\n${sel} {\n`;for(const[p,v]of Object.entries(props))css+=`    ${p}: ${v};\n`;css+='}\n';}
+  const custom=(document.getElementById('customCSS')?.value||'').trim();if(custom)css+=`\n/* === Custom CSS === */\n${custom}\n`;
+  return css;
+}
+
+// ==================== ELECTRON API ====================
+async function checkMW(){const s=document.getElementById('mwStatus');if(!window.electronAPI){s.innerHTML='<span class="status-text">Web</span>';return;}const d=await window.electronAPI.checkMW();s.innerHTML=d.installed?'<span class="status-dot green"></span> <span class="status-text">MW</span>':'<span class="status-dot red"></span> <span class="status-text">No MW</span>';}
+async function saveApply(){
+  const btn=document.getElementById('saveBtn');if(window.electronAPI){btn.innerHTML='⏳';btn.disabled=true;
+    const r=await window.electronAPI.applyTheme(genCSS(),cf);
+    await window.electronAPI.saveChartColors({background:chartColors.ch_background,axisLine:chartColors.ch_axisLine,gridLine:chartColors.ch_gridLine,crossHair:chartColors.ch_crossHair,textFg:chartColors.ch_textFg},{up:barColors.b_up,upFill:barColors.b_upFill,upOutline:barColors.b_upOutline,down:barColors.b_down,downFill:barColors.b_downFill,downOutline:barColors.b_downOutline});
+    const td={upText:tradingColors.t_upText.slice(1),downText:tradingColors.t_downText.slice(1),upBg:tradingColors.t_upBg.slice(1),downBg:tradingColors.t_downBg.slice(1),upArrow:tradingColors.t_upArrow.slice(1),downArrow:tradingColors.t_downArrow.slice(1)};
+    const dd={};for(const[k,mk]of[['d_bidColor','bidColor'],['d_askColor','askColor'],['d_atBidText','atBidText'],['d_atAskText','atAskText'],['d_bgColor','bgColor'],['d_priceText','priceText'],['d_mboBidFill','mboBidFill'],['d_mboAskFill','mboAskFill']])dd[mk]=tradingColors[k].slice(1)+(tradingAlphas[k]||'');
+    await window.electronAPI.saveTradingColors({table:td,dom:dd,buttons:{buyText:buttonColors.btn_buyText.slice(1),buyBg:buttonColors.btn_buyBg.slice(1)+(buttonAlphas.btn_buyBg||''),sellText:buttonColors.btn_sellText.slice(1),sellBg:buttonColors.btn_sellBg.slice(1)+(buttonAlphas.btn_sellBg||'')}});
+    btn.innerHTML=r.ok?'✓ Done':'✗ Fail';toast(r.ok?'Installed! Restart MW.':r.error||'Cancelled',r.ok?'ok':'err');
+    setTimeout(()=>{btn.innerHTML='✓ Save';btn.disabled=false;},2000);
+  }else{const b=new Blob([genCSS()],{type:'text/css'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='dark.css';a.click();URL.revokeObjectURL(u);toast('Downloaded','ok');}
+}
+async function restore(){if(!window.electronAPI||!confirm('Restore original?'))return;const r=await window.electronAPI.restoreTheme();toast(r.ok?'Restored! Restart MW.':r.error,r.ok?'ok':'err');}
+async function importCurrent(){if(!window.electronAPI)return;const r=await window.electronAPI.readCurrentTheme();if(r.ok&&r.colors){for(const[id,v]of Object.entries(r.colors))if(cc.hasOwnProperty(id))cc[id]=v;if(r.font){cf=r.font;document.getElementById('fontFamily').value=cf;}if(r.accent){accentColor=r.accent;}if(r.focus){focusColor=r.focus;}syncAllInputs();clrPreset();up();snap();captureOriginal();toast('Imported!','ok');}else toast(r.error||'Failed','err');}
+async function loadChartColors(){if(!window.electronAPI)return;const r=await window.electronAPI.readChartColors();if(r.ok){chartColors={ch_background:r.chart.background,ch_axisLine:r.chart.axisLine,ch_gridLine:r.chart.gridLine,ch_crossHair:r.chart.crossHair,ch_textFg:r.chart.textFg};barColors={b_up:r.bars.up,b_upFill:r.bars.upFill,b_upOutline:r.bars.upOutline,b_down:r.bars.down,b_downFill:r.bars.downFill,b_downOutline:r.bars.downOutline};syncAllInputs();up();}}
+async function loadTradingColors(){if(!window.electronAPI?.readTradingColors)return;const r=await window.electronAPI.readTradingColors();if(r.ok){if(r.buttons){buttonColors.btn_buyText='#'+(r.buttons.buyText||'000000').slice(0,6);buttonColors.btn_buyBg='#'+(r.buttons.buyBg||'FFFFFF').slice(0,6);if(r.buttons.buyBg?.length>6)buttonAlphas.btn_buyBg=r.buttons.buyBg.slice(6);buttonColors.btn_sellText='#'+(r.buttons.sellText||'FFFFFF').slice(0,6);buttonColors.btn_sellBg='#'+(r.buttons.sellBg||'A52A2A').slice(0,6);if(r.buttons.sellBg?.length>6)buttonAlphas.btn_sellBg=r.buttons.sellBg.slice(6);}
+    const t=r.table;tradingColors.t_upText='#'+(t.upText||'FFFFFF').slice(0,6);tradingColors.t_downText='#'+(t.downText||'FF0000').slice(0,6);tradingColors.t_upBg='#'+(t.upBg||'FFFFFF').slice(0,6);tradingColors.t_downBg='#'+(t.downBg||'962323').slice(0,6);tradingColors.t_upArrow='#'+(t.upArrow||'FFFFFF').slice(0,6);tradingColors.t_downArrow='#'+(t.downArrow||'FF0000').slice(0,6);
+    const d=r.dom;for(const[k,mk]of[['d_bidColor','bidColor'],['d_askColor','askColor'],['d_atBidText','atBidText'],['d_atAskText','atAskText'],['d_bgColor','bgColor'],['d_priceText','priceText'],['d_mboBidFill','mboBidFill'],['d_mboAskFill','mboAskFill']]){const hex=d[mk]||'000000';tradingColors[k]='#'+hex.slice(0,6);if(hex.length>6)tradingAlphas[k]=hex.slice(6);}
+    syncAllInputs();up();}}
+
+// ==================== PRESETS ====================
+async function loadCustomPresets(){if(!window.electronAPI)return;const r=await window.electronAPI.loadPresets();if(r.ok){customPresets=r.presets;renderCustomPresets();}}
+function renderCustomPresets(){const el=document.getElementById('customPresets'),no=document.getElementById('noCustom');const ks=Object.keys(customPresets);no.style.display=ks.length?'none':'block';el.innerHTML='';for(const k of ks){const p=customPresets[k],d=document.createElement('div');d.className='preset';d.innerHTML=`<div class="preset-name" style="display:flex;justify-content:space-between"><span style="overflow:hidden;text-overflow:ellipsis">${k}</span><span onclick="event.stopPropagation();delPreset('${k.replace(/'/g,"\\'")}')" style="cursor:pointer;opacity:.4;font-size:7px">✕</span></div><div class="preset-bar"><span style="background:${p.colors?.main||'#000'}"></span><span style="background:${p.colors?.secondary||'#000'}"></span><span style="background:${p.colors?.controlInner||'#111'}"></span><span style="background:${p.colors?.tabSelected||'#222'}"></span></div>`;d.onclick=()=>loadPreset(k);el.appendChild(d);}}
+function saveCustomPreset(){
+  // Custom modal instead of prompt() which is unreliable in Electron
+  const ov=document.createElement('div');ov.className='modal-overlay';
+  ov.innerHTML=`<div class="modal"><h2>Save Preset</h2>
+    <div style="margin-bottom:12px"><input type="text" id="presetNameInput" placeholder="Preset name..." style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:13px" autofocus></div>
+    <div class="mactions"><button class="btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button><button class="btn btn-primary" onclick="doSavePreset()">Save</button></div></div>`;
+  document.body.appendChild(ov);
+  const inp=document.getElementById('presetNameInput');
+  inp.focus();
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')doSavePreset();if(e.key==='Escape')ov.remove();});
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+}
+async function doSavePreset(){
+  const inp=document.getElementById('presetNameInput');
+  const name=inp?.value?.trim();if(!name||!window.electronAPI){document.querySelector('.modal-overlay')?.remove();return;}
+  const data={colors:{...cc},font:cf,fontSize:cfs,chartColors:{...chartColors},barColors:{...barColors},tradingColors:{...tradingColors},tradingAlphas:{...tradingAlphas},buttonColors:{...buttonColors},buttonAlphas:{...buttonAlphas},accentColor,focusColor,customCSS:document.getElementById('customCSS')?.value||'',varOverrides:{...varOverrides},selOverrides:{...selOverrides}};
+  try{const r=await window.electronAPI.savePreset(name,data);if(r.ok){customPresets[name]=data;renderCustomPresets();toast('Saved!','ok');}else{toast('Save failed: '+(r.error||'unknown'),'err');}}
+  catch(e){toast('Save error: '+e.message,'err');}
+  document.querySelector('.modal-overlay')?.remove();
+}
+function loadPreset(name){const p=customPresets[name];if(!p)return;cc={...cc,...(p.colors||{})};if(p.font){cf=p.font;document.getElementById('fontFamily').value=cf;}if(p.fontSize){cfs=p.fontSize;document.getElementById('fontSize').value=cfs;document.getElementById('fsv').textContent=cfs+'pt';}if(p.chartColors)Object.assign(chartColors,p.chartColors);if(p.barColors)Object.assign(barColors,p.barColors);if(p.tradingColors)Object.assign(tradingColors,p.tradingColors);if(p.tradingAlphas)Object.assign(tradingAlphas,p.tradingAlphas);if(p.buttonColors)Object.assign(buttonColors,p.buttonColors);if(p.buttonAlphas)Object.assign(buttonAlphas,p.buttonAlphas);if(p.accentColor)accentColor=p.accentColor;if(p.focusColor)focusColor=p.focusColor;if(p.customCSS!==undefined)document.getElementById('customCSS').value=p.customCSS;if(p.varOverrides){varOverrides={...p.varOverrides};renderVars();}if(p.selOverrides){selOverrides={...p.selOverrides};renderSels();}syncAllInputs();clrPreset();up();snap();}
+async function delPreset(name){if(!window.electronAPI)return;try{await window.electronAPI.deletePreset(name);delete customPresets[name];renderCustomPresets();toast('Deleted','ok');}catch(e){toast('Delete failed','err');}}
+
+// ==================== EXPORT/IMPORT ====================
+async function exportAll(){if(!window.electronAPI)return;const bundle={version:4,type:'mwtheme',date:new Date().toISOString(),theme:{css:genCSS(),colors:{...cc},font:cf,fontSize:cfs},chart:{...chartColors},bars:{...barColors},trading:{colors:{...tradingColors},alphas:{...tradingAlphas}},buttons:{colors:{...buttonColors},alphas:{...buttonAlphas}},accent:accentColor,focus:focusColor,customCSS:document.getElementById('customCSS')?.value||'',varOverrides:{...varOverrides},selOverrides:{...selOverrides}};const r=await window.electronAPI.exportAll(bundle);if(r.ok)toast('Exported!','ok');}
+async function importAll(){if(!window.electronAPI)return;const r=await window.electronAPI.importAll();if(r.ok&&r.data){const d=r.data;if(d.theme){if(d.theme.colors)cc={...cc,...d.theme.colors};if(d.theme.font){cf=d.theme.font;document.getElementById('fontFamily').value=cf;}if(d.theme.fontSize){cfs=d.theme.fontSize;document.getElementById('fontSize').value=cfs;document.getElementById('fsv').textContent=cfs+'pt';}}if(d.colors&&!d.theme)cc={...cc,...d.colors};if(d.chart)Object.assign(chartColors,d.chart);if(d.bars)Object.assign(barColors,d.bars);if(d.trading){if(d.trading.colors)Object.assign(tradingColors,d.trading.colors);if(d.trading.alphas)Object.assign(tradingAlphas,d.trading.alphas);}if(d.buttons){if(d.buttons.colors)Object.assign(buttonColors,d.buttons.colors);if(d.buttons.alphas)Object.assign(buttonAlphas,d.buttons.alphas);}if(d.accent)accentColor=d.accent;if(d.focus)focusColor=d.focus;if(d.customCSS!==undefined)document.getElementById('customCSS').value=d.customCSS;if(d.varOverrides){varOverrides={...d.varOverrides};renderVars();}if(d.selOverrides){selOverrides={...d.selOverrides};renderSels();}syncAllInputs();clrPreset();up();snap();toast('Imported!','ok');}}
+
+function toast(m,t){const e=document.getElementById('toast');e.textContent=m;e.className='toast show '+(t||'ok');setTimeout(()=>e.className='toast',3000);}
+
+// ==================== HELP SYSTEM ====================
+const HELP_PAGES={
+  'getting-started':{title:'Getting Started',content:`
+    <h2>Getting Started</h2>
+    <p>MW Theme Studio lets you customize every visual aspect of MotiveWave — backgrounds, controls, charts, candles, trading colors, and more.</p>
+    <h3>Quick Start</h3>
+    <ul>
+      <li><strong>Pick a preset</strong> — Start from one of the 6 built-in dark themes</li>
+      <li><strong>Tweak colors</strong> — Use the color pickers in the sidebar to adjust anything</li>
+      <li><strong>Preview live</strong> — The right panel updates in real-time as you edit</li>
+      <li><strong>Save & Apply</strong> — Click the green <code>✓ Save</code> button to write the theme to MotiveWave</li>
+      <li><strong>Restart MW</strong> — MotiveWave needs a restart to pick up the changes</li>
+    </ul>
+    <div class="tip"><strong>Tip:</strong> You can click directly on elements in the preview to jump to their color settings in the sidebar.</div>
+    <h3>Requirements</h3>
+    <ul>
+      <li>MotiveWave installed at <code>/Applications/MotiveWave.app</code></li>
+      <li>App Management permission (System Settings → Privacy → App Management)</li>
+      <li>Admin password required when saving (to write into the app bundle)</li>
+    </ul>
+  `},
+  'presets':{title:'Presets',content:`
+    <h2>Presets</h2>
+    <p>Presets give you a complete color scheme in one click. Use them as a starting point and customize from there.</p>
+    <h3>Built-in Presets</h3>
+    <ul>
+      <li><strong>OLED Black</strong> — Pure black (#050505), minimal light, maximum contrast</li>
+      <li><strong>Stock Dark</strong> — Classic dark gray (#191919), the original MotiveWave dark look</li>
+      <li><strong>Midnight</strong> — Deep navy blue (#05080f), subtle blue undertones</li>
+      <li><strong>Charcoal</strong> — Warm dark gray (#181818), balanced and neutral</li>
+      <li><strong>Purple</strong> — Deep purple (#0a0510), unique and easy on the eyes</li>
+      <li><strong>Forest</strong> — Dark green (#050a05), nature-inspired</li>
+    </ul>
+    <h3>Custom Presets</h3>
+    <p>Save your current setup as a custom preset with the <code>+ Save</code> button under "My Presets". These are stored locally and survive app updates.</p>
+    <div class="tip"><strong>Tip:</strong> Custom presets save everything — colors, font, chart colors, candle colors, trading colors, CSS overrides, and variable overrides.</div>
+  `},
+  'auto-theme':{title:'Auto Theme',content:`
+    <h2>Auto Theme Generator</h2>
+    <p>Generate a complete 20+ color palette from just two inputs: a <strong>base dark color</strong> and an <strong>accent color</strong>.</p>
+    <h3>How It Works</h3>
+    <p>The algorithm takes your base color and derives all 20 UI colors by adjusting lightness and saturation. The accent color is used for highlights, active tabs, and focus states.</p>
+    <h3>Usage</h3>
+    <ul>
+      <li>Click <code>Generate</code> in the Auto Theme section</li>
+      <li>Pick a base dark color (e.g., #050505 for OLED black)</li>
+      <li>Pick an accent (e.g., #6366f1 for indigo, #22c55e for green)</li>
+      <li>Click Generate — all background and UI colors update instantly</li>
+    </ul>
+    <div class="tip"><strong>Tip:</strong> Chart colors, candle colors, and trading colors are NOT changed by Auto Theme — those stay as-is so you keep your trading setup.</div>
+  `},
+  'quick-edit':{title:'Quick Edit',content:`
+    <h2>Quick Edit Tab</h2>
+    <p>The main editing tab with organized color sections. Each row has a label, hex input, and color picker.</p>
+    <h3>Sections</h3>
+    <ul>
+      <li><strong>Backgrounds</strong> — Main panels, chart BG, status bar, dividers, active panel highlight</li>
+      <li><strong>UI Elements</strong> — Controls, choosers, chart tabs, tab selected/hover states</li>
+      <li><strong>Menus & Popups</strong> — Menu backgrounds, menu items, popup backgrounds, separators</li>
+      <li><strong>Interactive</strong> — Toggle selected, hover, pressed, accent, borders</li>
+      <li><strong>Chart Colors</strong> — Background, axis, grid, crosshair, text</li>
+      <li><strong>Candle Colors</strong> — Up/down body, fill, and outline colors</li>
+      <li><strong>Buy / Sell</strong> — Button text and background for buy/sell buttons</li>
+      <li><strong>Table Colors</strong> — Watchlist up/down text, backgrounds, arrows</li>
+      <li><strong>DOM Colors</strong> — Bid/ask colors, text, DOM background, MBO fills</li>
+      <li><strong>Accent</strong> — Global accent color (highlights, active states) and focus ring color</li>
+    </ul>
+    <h3>Editing Colors</h3>
+    <ul>
+      <li><strong>Color picker</strong> — Click the colored square to open the system color picker</li>
+      <li><strong>Hex input</strong> — Type a hex value directly (e.g., #1a1a1a)</li>
+      <li>Both stay in sync — changing one updates the other</li>
+    </ul>
+  `},
+  'advanced':{title:'Advanced Tabs',content:`
+    <h2>Advanced Tabs</h2>
+    <p>Click the <code>⚙</code> gear icon in the tab bar to reveal three advanced tabs: Variables, Selectors, and Raw CSS.</p>
+    <h3>Variables Tab</h3>
+    <p>Browse and override <strong>every CSS variable</strong> defined in MotiveWave's <code>ui_theme.css</code>. Variables are grouped by category (Theme Colors, JavaFX Controls, Toolbar, etc.).</p>
+    <ul>
+      <li><strong>Search</strong> — Filter variables by name or value</li>
+      <li><strong>Favorites</strong> — Star (★) variables you use often for quick access</li>
+      <li><strong>Overrides</strong> — Changed values show in yellow. The badge on the tab shows how many overrides are active</li>
+      <li><strong>Clear</strong> — Remove all variable overrides at once</li>
+    </ul>
+    <h3>Selectors Tab</h3>
+    <p>Browse and override <strong>individual CSS class properties</strong>. Expand any selector (like <code>.button-blue</code>) to see and edit its properties.</p>
+    <h3>Raw CSS Tab</h3>
+    <p>Write <strong>freeform JavaFX CSS</strong> that gets appended to the generated theme. Use this for overrides not covered by the other tabs.</p>
+    <div class="tip"><strong>Tip:</strong> Variable and selector overrides are included when you save custom presets or export themes.</div>
+  `},
+  'preview':{title:'Live Preview',content:`
+    <h2>Live Preview</h2>
+    <p>The right panel shows a real-time mockup of how your theme will look in MotiveWave.</p>
+    <h3>Interactive Elements</h3>
+    <ul>
+      <li><strong>Hover</strong> — Hover over any element to see a tooltip with its name and current color values</li>
+      <li><strong>Click</strong> — Click an element to jump to its color settings in the sidebar</li>
+      <li><strong>Before/After</strong> — Toggle between your changes and the original theme to compare</li>
+    </ul>
+    <h3>Preview Components</h3>
+    <ul>
+      <li><strong>Main chart</strong> — Menu bar, toolbar, timeframe tabs, chart tabs, candle chart with axis</li>
+      <li><strong>DOM panel</strong> — Depth of Market with bid/ask bars, price column, buy/sell buttons</li>
+      <li><strong>Context menu</strong> — Menu items with hover state and separators</li>
+      <li><strong>Chooser dialog</strong> — Search field, list items with toggle states</li>
+      <li><strong>Watchlist</strong> — Table rows with up/down coloring, buy/sell buttons</li>
+    </ul>
+  `},
+  'save-apply':{title:'Save & Apply',content:`
+    <h2>Save & Apply</h2>
+    <p>The <code>✓ Save</code> button writes your theme directly to MotiveWave's installation files.</p>
+    <h3>What Gets Written</h3>
+    <ul>
+      <li><strong>dark.css</strong> — Generated CSS with all your color overrides (writes to <code>/Applications/MotiveWave.app/Contents/styles/</code>)</li>
+      <li><strong>Font override</strong> — Appended to <code>ui_theme.css</code> if you changed the font</li>
+      <li><strong>Chart colors</strong> — Saved to MotiveWave's workspace config (<code>settings.json</code>)</li>
+      <li><strong>Trading colors</strong> — Table, DOM, and buy/sell button colors saved to workspace config</li>
+    </ul>
+    <h3>After Saving</h3>
+    <p>You must <strong>restart MotiveWave</strong> for the changes to take effect. CSS changes are loaded at startup.</p>
+    <h3>Restore Original</h3>
+    <p>The <code>Restore</code> button reverts to the backed-up original theme. Backups are stored in <code>~/.mw-theme-backup/</code>.</p>
+    <div class="tip"><strong>Tip:</strong> The app creates a backup of your original files the first time you save. You can always go back.</div>
+  `},
+  'import-export':{title:'Import / Export',content:`
+    <h2>Import / Export</h2>
+    <h3>Import Current Theme</h3>
+    <p>The <code>Import</code> button reads MotiveWave's current <code>dark.css</code> and loads those colors into the editor. Use this to start editing from your current theme instead of a preset.</p>
+    <h3>Export All</h3>
+    <p>Exports a <code>.mwtheme</code> file containing everything: CSS, colors, chart settings, trading colors, font, variable overrides, and custom CSS. Share it or keep it as a backup.</p>
+    <h3>Import All</h3>
+    <p>Imports a <code>.mwtheme</code> file and restores the full theme state — all colors, overrides, and settings.</p>
+    <div class="tip"><strong>Tip:</strong> <code>.mwtheme</code> files are JSON — you can open them in a text editor if needed.</div>
+  `},
+  'shortcuts':{title:'Shortcuts',content:`
+    <h2>Keyboard Shortcuts</h2>
+    <ul>
+      <li><kbd>⌘</kbd> + <kbd>Z</kbd> — Undo</li>
+      <li><kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>Z</kbd> — Redo</li>
+    </ul>
+    <h3>Tips</h3>
+    <ul>
+      <li>Undo works across all color changes, preset switches, and imports</li>
+      <li>Color picker drags are grouped as one undo step (not per-pixel)</li>
+      <li>Up to 80 history states are stored</li>
+      <li>Undo history resets when you reload the app</li>
+    </ul>
+  `},
+  'font':{title:'Font',content:`
+    <h2>Font Selection</h2>
+    <p>Change the global font used throughout MotiveWave's UI.</p>
+    <h3>Available Fonts</h3>
+    <ul>
+      <li><strong>Monaco</strong> — macOS monospace classic, great for trading</li>
+      <li><strong>SF Mono</strong> — Apple's system monospace</li>
+      <li><strong>Menlo</strong> — macOS default monospace</li>
+      <li><strong>Inter</strong> — Modern proportional font, very clean (bundled with MW)</li>
+      <li><strong>Roboto</strong> — Google's system font (bundled with MW)</li>
+      <li><strong>JetBrains Mono</strong> — Developer favorite, excellent readability</li>
+      <li><strong>Fira Code, Consolas, Source Code Pro, Hack</strong> — Other popular coding fonts</li>
+    </ul>
+    <h3>Font Size</h3>
+    <p>Adjust with the slider (8pt–14pt). Default is 10.5pt. This affects most text in MotiveWave's UI.</p>
+    <div class="tip"><strong>Note:</strong> Fonts need to be installed on your system to work (except Inter and Roboto which are bundled with MotiveWave).</div>
+  `}
+};
+const HELP_NAV_ORDER=['getting-started','presets','auto-theme','quick-edit','font','advanced','preview','save-apply','import-export','shortcuts'];
+
+function showHelp(page){
+  if(document.querySelector('.help-overlay'))return;
+  const ov=document.createElement('div');ov.className='help-overlay';
+  let nav='';for(const k of HELP_NAV_ORDER){const p=HELP_PAGES[k];nav+=`<button class="help-nav-item${k===(page||'getting-started')?' active':''}" data-page="${k}" onclick="switchHelp('${k}')">${p.title}</button>`;}
+  ov.innerHTML=`<div class="help-panel" style="position:relative">
+    <button class="help-close" onclick="this.closest('.help-overlay').remove()">✕</button>
+    <div class="help-nav"><div class="help-nav-title">? Help</div>${nav}</div>
+    <div class="help-body" id="helpBody">${HELP_PAGES[page||'getting-started'].content}</div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+  document.addEventListener('keydown',function helpEsc(e){if(e.key==='Escape'){ov.remove();document.removeEventListener('keydown',helpEsc);}});
+}
+function switchHelp(page){
+  document.getElementById('helpBody').innerHTML=HELP_PAGES[page].content;
+  document.querySelectorAll('.help-nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+  document.getElementById('helpBody').scrollTop=0;
+}
+
+init();
+</script>
+</body>
+</html>

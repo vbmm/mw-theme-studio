@@ -1,0 +1,26 @@
+{
+  "name": "mw-theme-studio",
+  "version": "4.0.0",
+  "description": "MotiveWave Theme Studio — customize colors & fonts",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --mac --dir",
+    "build": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.mw-theme-studio",
+    "productName": "MW Theme Studio",
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "category": "public.app-category.utilities",
+      "icon": "icon.icns"
+    },
+    "files": ["main.js", "preload.js", "index.html", "icon.icns"],
+    "directories": { "output": "dist" }
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
