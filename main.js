@@ -195,24 +195,132 @@ ipcMain.handle('read-chart-colors', async () => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
-ipcMain.handle('save-chart-colors', async (event, { chart, bars }) => {
+ipcMain.handle('save-chart-colors', async (event, { chart, bars, themeName }) => {
   try {
     if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
     const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
-    if (settings.chartThemes?.[0]) {
-      const ct = settings.chartThemes[0];
-      ct.background = hexToRgbStr(chart.background); ct.axisLine = hexToRgbStr(chart.axisLine);
-      ct.gridLine = hexToRgbStr(chart.gridLine); ct.crossHair = hexToRgbStr(chart.crossHair); ct.textFg = hexToRgbStr(chart.textFg);
+    
+    // Find the active chart theme by name (or first one)
+    const activeChartName = themeName || settings.chartTheme || '';
+    const ctIdx = settings.chartThemes?.findIndex(t => t.name === activeChartName);
+    const ct = settings.chartThemes?.[ctIdx >= 0 ? ctIdx : 0];
+    if (ct && chart) {
+      if (chart.background) ct.background = hexToRgbStr(chart.background);
+      if (chart.axisLine) ct.axisLine = hexToRgbStr(chart.axisLine);
+      if (chart.gridLine) ct.gridLine = hexToRgbStr(chart.gridLine);
+      if (chart.crossHair) ct.crossHair = hexToRgbStr(chart.crossHair);
+      if (chart.textFg) ct.textFg = hexToRgbStr(chart.textFg);
+      // Also save extra chart theme fields
+      if (chart.axisLine2) ct.axisLine2 = hexToRgbStr(chart.axisLine2);
+      if (chart.axisText) ct.axisText = hexToRgbStr(chart.axisText);
+      if (chart.textBg) ct.textBg = hexToRgbStr(chart.textBg);
+      if (chart.textBorder) ct.textBorder = hexToRgbStr(chart.textBorder);
+      if (chart.majorGridLine) ct.majorGridLine = hexToRgbStr(chart.majorGridLine);
+      if (chart.histogram) ct.histogram = hexToRgbStr(chart.histogram);
     }
-    if (settings.barThemes?.[0]) {
-      const bt = settings.barThemes[0];
+    
+    // Find the active bar theme by name (or first one)
+    const activeBarName = themeName || settings.barTheme || '';
+    const btIdx = settings.barThemes?.findIndex(t => t.name === activeBarName);
+    const bt = settings.barThemes?.[btIdx >= 0 ? btIdx : 0];
+    if (bt && bars) {
       const getAlpha = (orig) => { const p = (orig || '').split(','); return p.length >= 4 ? parseInt(p[3]) : undefined; };
       bt.up = hexToRgbStr(bars.up); bt.upFill = hexToRgbStr(bars.upFill, getAlpha(bt.upFill) || 210); bt.upOutline = hexToRgbStr(bars.upOutline);
       bt.down = hexToRgbStr(bars.down); bt.downFill = hexToRgbStr(bars.downFill, getAlpha(bt.downFill) || 210); bt.downOutline = hexToRgbStr(bars.downOutline);
+      // Save extended bar colors
+      if (bars.neutral) bt.neutral = hexToRgbStr(bars.neutral);
+      if (bars.neutralFill) bt.neutralFill = hexToRgbStr(bars.neutralFill, getAlpha(bt.neutralFill) || 210);
+      if (bars.inside) bt.inside = hexToRgbStr(bars.inside);
+      if (bars.outside) bt.outside = hexToRgbStr(bars.outside);
+      if (bars.topFill) bt.topFill = hexToRgbStr(bars.topFill);
+      if (bars.bottomFill) bt.bottomFill = hexToRgbStr(bars.bottomFill);
+      if (bars.priceLine) bt.priceLine = hexToRgbStr(bars.priceLine);
+    }
+    
+    fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
+    console.log('[save-chart-colors] Written to', MW_SETTINGS, '- theme:', activeChartName);
+    return { ok: true, chartTheme: activeChartName, barTheme: activeBarName };
+  } catch (e) { console.error('[save-chart-colors] Error:', e.message); return { ok: false, error: e.message }; }
+});
+
+// ==================== THEME MANAGEMENT ====================
+
+ipcMain.handle('list-themes', async () => {
+  try {
+    if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
+    const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
+    return {
+      ok: true,
+      activeChart: settings.chartTheme || '',
+      activeBar: settings.barTheme || '',
+      chartThemes: (settings.chartThemes || []).map(t => ({ name: t.name, background: rgbStrToHex(t.background), textFg: rgbStrToHex(t.textFg) })),
+      barThemes: (settings.barThemes || []).map(t => ({ name: t.name, up: rgbStrToHex(t.up), down: rgbStrToHex(t.down) }))
+    };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('create-theme', async (event, { name, type, copyFrom }) => {
+  try {
+    if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
+    const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
+    
+    if (type === 'chart' || type === 'both') {
+      if (!settings.chartThemes) settings.chartThemes = [];
+      const existing = settings.chartThemes.find(t => t.name === name);
+      if (existing) return { ok: false, error: `Chart theme "${name}" already exists` };
+      const source = copyFrom ? settings.chartThemes.find(t => t.name === copyFrom) : settings.chartThemes[0];
+      const newTheme = source ? { ...source, name } : { name, background: '0,0,0', axisLine: '45,45,45', gridLine: '30,30,30', crossHair: '200,200,200', textFg: '200,200,200', textBg: '0,0,0', textBorder: '200,200,200', axisLine2: '55,55,55', axisText: '180,180,180', majorGridLine: '65,65,65', zoomFill: '215,215,215,130', zoomLine: '160,160,160', shapeFill: '180,225,240,90', histogram: '0,150,255' };
+      settings.chartThemes.push(newTheme);
+    }
+    
+    if (type === 'bar' || type === 'both') {
+      if (!settings.barThemes) settings.barThemes = [];
+      const existing = settings.barThemes.find(t => t.name === name);
+      if (existing) return { ok: false, error: `Bar theme "${name}" already exists` };
+      const source = copyFrom ? settings.barThemes.find(t => t.name === copyFrom) : settings.barThemes[0];
+      const newTheme = source ? { ...source, name } : { name, up: '0,200,0', upFill: '0,200,0,210', upOutline: '0,255,0', down: '200,0,0', downFill: '200,0,0,210', downOutline: '255,0,0', neutral: '200,200,170', neutralFill: '200,200,170,210', neutralOutline: '255,255,255', inside: '255,255,255', insideFill: '255,255,255,210', insideOutline: '255,255,255', outside: '150,190,255', outsideFill: '150,190,255,210', outsideOutline: '255,255,255', topFill: '210,255,200', bottomFill: '255,200,210', priceLine: '200,200,175' };
+      settings.barThemes.push(newTheme);
+    }
+    
+    fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('set-active-theme', async (event, { chartTheme, barTheme }) => {
+  try {
+    if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
+    const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
+    if (chartTheme !== undefined) settings.chartTheme = chartTheme;
+    if (barTheme !== undefined) settings.barTheme = barTheme;
+    fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('delete-theme', async (event, { name, type }) => {
+  try {
+    if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
+    const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
+    if (type === 'chart' || type === 'both') {
+      settings.chartThemes = (settings.chartThemes || []).filter(t => t.name !== name);
+      if (settings.chartTheme === name && settings.chartThemes.length) settings.chartTheme = settings.chartThemes[0].name;
+    }
+    if (type === 'bar' || type === 'both') {
+      settings.barThemes = (settings.barThemes || []).filter(t => t.name !== name);
+      if (settings.barTheme === name && settings.barThemes.length) settings.barTheme = settings.barThemes[0].name;
     }
     fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('check-mw-running', async () => {
+  return new Promise((resolve) => {
+    exec('pgrep -x MotiveWave', (err, stdout) => {
+      resolve({ running: !err && stdout.trim().length > 0 });
+    });
+  });
 });
 
 // ==================== IPC: TRADING COLORS ====================

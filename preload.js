@@ -37,6 +37,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, data) => cb(data)),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_, msg) => cb(msg)),
+  // Theme management
+  listThemes: () => ipcRenderer.invoke('list-themes'),
+  createTheme: (opts) => ipcRenderer.invoke('create-theme', opts),
+  setActiveTheme: (opts) => ipcRenderer.invoke('set-active-theme', opts),
+  deleteTheme: (name, type) => ipcRenderer.invoke('delete-theme', { name, type }),
+  checkMWRunning: () => ipcRenderer.invoke('check-mw-running'),
   // Workspace + Indicator scanner
   listWorkspaces: () => ipcRenderer.invoke('list-workspaces'),
   setWorkspace: (ws) => ipcRenderer.invoke('set-workspace', ws),

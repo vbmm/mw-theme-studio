@@ -338,6 +338,20 @@
       <div class="section"><div class="section-title">UI Elements</div><div id="g-ui"></div></div>
       <div class="section"><div class="section-title">Menus & Popups</div><div id="g-menu"></div></div>
       <div class="section"><div class="section-title">Interactive</div><div id="g-int"></div></div>
+      <div class="section">
+        <div class="section-title">Theme <button class="btn btn-sm" onclick="createNewTheme()">+ New</button></div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <div style="flex:1">
+            <div style="font-size:9px;color:var(--text3);margin-bottom:3px">Chart Theme</div>
+            <select id="chartThemeSelect" style="width:100%;font-size:10px;padding:4px 6px" onchange="switchTheme('chart',this.value)"></select>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:9px;color:var(--text3);margin-bottom:3px">Bar Theme</div>
+            <select id="barThemeSelect" style="width:100%;font-size:10px;padding:4px 6px" onchange="switchTheme('bar',this.value)"></select>
+          </div>
+        </div>
+        <div id="mwRunningWarning" style="display:none;font-size:9px;color:var(--warning);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:4px;padding:4px 8px;margin-bottom:8px">MotiveWave is running — close it before saving or changes will be overwritten</div>
+      </div>
       <div class="section"><div class="section-title">Chart Colors</div><div id="g-chart"></div></div>
       <div class="section"><div class="section-title">Candle Colors</div><div id="g-bars"></div></div>
       <div class="section"><div class="section-title">Buy / Sell</div><div id="g-buttons"></div></div>
@@ -891,13 +905,21 @@ function genCSS(){
 async function checkMW(){const s=document.getElementById('mwStatus');if(!window.electronAPI){s.innerHTML='<span class="status-text">Web</span>';return;}const d=await window.electronAPI.checkMW();s.innerHTML=d.installed?'<span class="status-dot green"></span> <span class="status-text">MW</span>':'<span class="status-dot red"></span> <span class="status-text">No MW</span>';}
 async function saveApply(){
   const btn=document.getElementById('saveBtn');if(window.electronAPI){btn.innerHTML='⏳';btn.disabled=true;
+    // Check if MW is running — warn user
+    const mwCheck = await window.electronAPI.checkMWRunning();
+    if (mwCheck.running) {
+      const proceed = confirm('MotiveWave is running. It will overwrite settings when it closes.\n\nClose MotiveWave FIRST, then save. Continue anyway?');
+      if (!proceed) { btn.innerHTML='✓ Save'; btn.disabled=false; return; }
+    }
     const r=await window.electronAPI.applyTheme(genCSS(),cf);
-    await window.electronAPI.saveChartColors({background:chartColors.ch_background,axisLine:chartColors.ch_axisLine,gridLine:chartColors.ch_gridLine,crossHair:chartColors.ch_crossHair,textFg:chartColors.ch_textFg},{up:barColors.b_up,upFill:barColors.b_upFill,upOutline:barColors.b_upOutline,down:barColors.b_down,downFill:barColors.b_downFill,downOutline:barColors.b_downOutline});
+    const chartResult = await window.electronAPI.saveChartColors({background:chartColors.ch_background,axisLine:chartColors.ch_axisLine,gridLine:chartColors.ch_gridLine,crossHair:chartColors.ch_crossHair,textFg:chartColors.ch_textFg},{up:barColors.b_up,upFill:barColors.b_upFill,upOutline:barColors.b_upOutline,down:barColors.b_down,downFill:barColors.b_downFill,downOutline:barColors.b_downOutline});
     const td={upText:tradingColors.t_upText.slice(1),downText:tradingColors.t_downText.slice(1),upBg:tradingColors.t_upBg.slice(1),downBg:tradingColors.t_downBg.slice(1),upArrow:tradingColors.t_upArrow.slice(1),downArrow:tradingColors.t_downArrow.slice(1)};
     const dd={};for(const[k,mk]of[['d_bidColor','bidColor'],['d_askColor','askColor'],['d_atBidText','atBidText'],['d_atAskText','atAskText'],['d_bgColor','bgColor'],['d_priceText','priceText'],['d_mboBidFill','mboBidFill'],['d_mboAskFill','mboAskFill']])dd[mk]=tradingColors[k].slice(1)+(tradingAlphas[k]||'');
-    await window.electronAPI.saveTradingColors({table:td,dom:dd,buttons:{buyText:buttonColors.btn_buyText.slice(1),buyBg:buttonColors.btn_buyBg.slice(1)+(buttonAlphas.btn_buyBg||''),sellText:buttonColors.btn_sellText.slice(1),sellBg:buttonColors.btn_sellBg.slice(1)+(buttonAlphas.btn_sellBg||'')}});
-    btn.innerHTML=r.ok?'✓ Done':'✗ Fail';toast(r.ok?'Installed! Restart MW.':r.error||'Cancelled',r.ok?'ok':'err');
-    setTimeout(()=>{btn.innerHTML='✓ Save';btn.disabled=false;},2000);
+    const tradingResult = await window.electronAPI.saveTradingColors({table:td,dom:dd,buttons:{buyText:buttonColors.btn_buyText.slice(1),buyBg:buttonColors.btn_buyBg.slice(1)+(buttonAlphas.btn_buyBg||''),sellText:buttonColors.btn_sellText.slice(1),sellBg:buttonColors.btn_sellBg.slice(1)+(buttonAlphas.btn_sellBg||'')}});
+    const allOk = r.ok && chartResult?.ok !== false && tradingResult?.ok !== false;
+    btn.innerHTML=allOk?'✓ Done':'✗ Fail';
+    toast(allOk ? (mwCheck.running ? 'Saved! Close & reopen MW to apply.' : 'Saved! Open MW to see changes.') : (r.error || chartResult?.error || tradingResult?.error || 'Save failed'), allOk?'ok':'err');
+    setTimeout(()=>{btn.innerHTML='✓ Save';btn.disabled=false;},2500);
   }else{const b=new Blob([genCSS()],{type:'text/css'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='dark.css';a.click();URL.revokeObjectURL(u);toast('Downloaded','ok');}
 }
 async function restore(){if(!window.electronAPI||!confirm('Restore original?'))return;const r=await window.electronAPI.restoreTheme();toast(r.ok?'Restored! Restart MW.':r.error,r.ok?'ok':'err');}
@@ -907,6 +929,107 @@ async function loadTradingColors(){if(!window.electronAPI?.readTradingColors)ret
     const t=r.table;tradingColors.t_upText='#'+(t.upText||'FFFFFF').slice(0,6);tradingColors.t_downText='#'+(t.downText||'FF0000').slice(0,6);tradingColors.t_upBg='#'+(t.upBg||'FFFFFF').slice(0,6);tradingColors.t_downBg='#'+(t.downBg||'962323').slice(0,6);tradingColors.t_upArrow='#'+(t.upArrow||'FFFFFF').slice(0,6);tradingColors.t_downArrow='#'+(t.downArrow||'FF0000').slice(0,6);
     const d=r.dom;for(const[k,mk]of[['d_bidColor','bidColor'],['d_askColor','askColor'],['d_atBidText','atBidText'],['d_atAskText','atAskText'],['d_bgColor','bgColor'],['d_priceText','priceText'],['d_mboBidFill','mboBidFill'],['d_mboAskFill','mboAskFill']]){const hex=d[mk]||'000000';tradingColors[k]='#'+hex.slice(0,6);if(hex.length>6)tradingAlphas[k]=hex.slice(6);}
     syncAllInputs();up();}}
+
+// ==================== THEME MANAGEMENT ====================
+
+async function loadThemes() {
+  if (!window.electronAPI?.listThemes) return;
+  const r = await window.electronAPI.listThemes();
+  if (!r.ok) return;
+  
+  const chartSel = document.getElementById('chartThemeSelect');
+  const barSel = document.getElementById('barThemeSelect');
+  if (!chartSel || !barSel) return;
+  
+  chartSel.innerHTML = '';
+  for (const t of r.chartThemes) {
+    const opt = document.createElement('option');
+    opt.value = t.name; opt.textContent = t.name;
+    chartSel.appendChild(opt);
+  }
+  chartSel.value = r.activeChart;
+  
+  barSel.innerHTML = '';
+  for (const t of r.barThemes) {
+    const opt = document.createElement('option');
+    opt.value = t.name; opt.textContent = t.name;
+    barSel.appendChild(opt);
+  }
+  barSel.value = r.activeBar;
+  
+  // Check MW running
+  checkMWStatus();
+}
+
+async function checkMWStatus() {
+  if (!window.electronAPI?.checkMWRunning) return;
+  const r = await window.electronAPI.checkMWRunning();
+  const warn = document.getElementById('mwRunningWarning');
+  if (warn) warn.style.display = r.running ? '' : 'none';
+}
+
+async function switchTheme(type, name) {
+  if (!window.electronAPI?.setActiveTheme) return;
+  const opts = {};
+  if (type === 'chart') opts.chartTheme = name;
+  if (type === 'bar') opts.barTheme = name;
+  await window.electronAPI.setActiveTheme(opts);
+  // Reload colors from the newly active theme
+  await loadChartColors();
+  toast(`Switched ${type} theme to "${name}"`, 'ok');
+}
+
+async function createNewTheme() {
+  const ov = document.createElement('div'); ov.className = 'modal-overlay';
+  ov.innerHTML = `<div class="modal">
+    <h2>Create Theme</h2>
+    <div class="crow"><label>Name</label><input type="text" class="sz-input" id="newThemeName" placeholder="My Theme" style="width:180px"></div>
+    <div class="crow"><label>Type</label><select class="sz-input" id="newThemeType" style="width:180px"><option value="both">Chart + Bar</option><option value="chart">Chart only</option><option value="bar">Bar only</option></select></div>
+    <div class="crow"><label>Copy from</label><select class="sz-input" id="newThemeCopy" style="width:180px"></select></div>
+    <div class="mactions">
+      <button class="btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="execCreateTheme()">Create</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  
+  // Populate copy-from dropdown
+  const r = await window.electronAPI.listThemes();
+  if (r.ok) {
+    const sel = document.getElementById('newThemeCopy');
+    sel.innerHTML = '<option value="">Default colors</option>';
+    const names = new Set();
+    for (const t of [...r.chartThemes, ...r.barThemes]) names.add(t.name);
+    for (const name of names) {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  }
+}
+
+async function execCreateTheme() {
+  const name = document.getElementById('newThemeName').value.trim();
+  if (!name) { toast('Enter a name', 'err'); return; }
+  const type = document.getElementById('newThemeType').value;
+  const copyFrom = document.getElementById('newThemeCopy').value || undefined;
+  
+  const r = await window.electronAPI.createTheme({ name, type, copyFrom });
+  if (r.ok) {
+    document.querySelector('.modal-overlay')?.remove();
+    await window.electronAPI.setActiveTheme({ chartTheme: name, barTheme: name });
+    await loadThemes();
+    await loadChartColors();
+    toast(`Created theme "${name}"`, 'ok');
+  } else {
+    toast(r.error || 'Failed', 'err');
+  }
+}
+
+// Load themes on startup
+setTimeout(loadThemes, 500);
+// Check MW status periodically
+setInterval(checkMWStatus, 30000);
 
 // ==================== PRESETS ====================
 async function loadCustomPresets(){if(!window.electronAPI)return;const r=await window.electronAPI.loadPresets();if(r.ok){customPresets=r.presets;renderCustomPresets();}}
