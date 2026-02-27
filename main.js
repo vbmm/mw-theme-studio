@@ -85,7 +85,7 @@ end tell'`;
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1280, height: 860, minWidth: 900, minHeight: 600,
+    width: 1440, height: 920, minWidth: 1024, minHeight: 700,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#030712',

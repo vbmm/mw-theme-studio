@@ -45,7 +45,7 @@
   .status-text{font-size:10px;color:var(--text2)}
   .divider{width:1px;height:20px;background:linear-gradient(180deg,transparent,var(--border),transparent);margin:0 6px}
 
-  .layout{display:grid;grid-template-columns:400px 1fr;height:calc(100vh - 48px);position:relative;z-index:1}
+  .layout{display:grid;grid-template-columns:420px 1fr;height:calc(100vh - 48px);position:relative;z-index:1}
   .sidebar{border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:rgba(10,15,26,.6)}
 
   .tab-bar{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface);gap:1px;padding:0 2px}
@@ -196,11 +196,11 @@
   .mw-toolbar .sep{width:1px;height:14px;margin:0 2px}
   .mw-tabs{display:flex;padding:1px 5px;gap:1px;border-bottom:1px solid rgba(255,255,255,.05);font-size:9px}
   .mw-tab{padding:2px 8px;border-radius:3px 3px 0 0}
-  .mw-body{display:flex;min-height:260px}
+  .mw-body{display:flex;min-height:320px}
   .mw-chart{flex:1;position:relative;overflow:hidden}
   .mw-chart .grid{position:absolute;inset:0}
   .mw-chart .wm{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;font-weight:700;opacity:.04;letter-spacing:2px}
-  .mw-chart .candles{position:absolute;bottom:24px;left:10px;right:46px;height:190px;display:flex;align-items:flex-end;gap:2px}
+  .mw-chart .candles{position:absolute;bottom:24px;left:10px;right:46px;height:250px;display:flex;align-items:flex-end;gap:2px}
   .mw-chart .candle{flex:1;min-width:2px;max-width:7px;border-radius:1px}
   .mw-chart .axis-y{position:absolute;right:0;top:0;bottom:18px;width:46px;display:flex;flex-direction:column;justify-content:space-between;padding:6px 3px;font-size:7px;text-align:right;border-left:1px solid}
   .mw-chart .axis-x{position:absolute;bottom:0;left:0;right:46px;height:18px;display:flex;align-items:center;justify-content:space-around;font-size:7px;border-top:1px solid}
@@ -217,6 +217,19 @@
   .prev-panel .pp-item{padding:3px 6px;font-size:9px;border-radius:3px;margin-bottom:2px}
   .prev-panel .pp-sep{height:1px;margin:3px 0}
   .prev-table-row{display:flex;justify-content:space-between;align-items:center;padding:3px 6px;font-size:8px;border-bottom:1px solid rgba(0,0,0,.1)}
+
+  /* Extended preview panels */
+  .prev-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .prev-order-ticket{border-radius:var(--radius);padding:10px;box-shadow:var(--shadow-md);border:1px solid rgba(255,255,255,.04)}
+  .prev-order-ticket .ot-title{font-size:9px;font-weight:700;margin-bottom:6px;letter-spacing:.04em;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .prev-order-ticket .ot-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:8px}
+  .prev-order-ticket .ot-input{background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:3px;padding:2px 6px;font-size:8px;color:inherit;min-width:60px;text-align:right}
+  .prev-positions{border-radius:var(--radius);padding:10px;box-shadow:var(--shadow-md);border:1px solid rgba(255,255,255,.04)}
+  .prev-positions .pos-title{font-size:9px;font-weight:700;margin-bottom:6px;letter-spacing:.04em;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .prev-positions .pos-header{display:flex;font-size:7px;font-weight:600;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.06);gap:4px;color:inherit;opacity:.6}
+  .prev-positions .pos-row{display:flex;font-size:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);gap:4px;align-items:center}
+  .prev-positions .pos-row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prev-chart-info{position:absolute;top:8px;left:8px;font-size:7px;line-height:1.5;z-index:5;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.5)}
 
   /* Auto-theme modal */
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
@@ -748,8 +761,11 @@ function renderPreview(override){
   const f=cf,fs=(cfs/10.5*10)+'px';
   const bc=_barColors,tc=_tradingColors,ta=_tradingAlphas,btc=_buttonColors,chc=_chartColors,ac=_accentColor;
   let cndl='';for(const cd of CANDLE_DATA){cndl+=`<div class="candle" style="height:${cd.h}px;background:${cd.up?bc.b_upFill:bc.b_downFill};border:1px solid ${cd.up?bc.b_upOutline:bc.b_downOutline}"></div>`;}
-  const domP=[21525,21500,21475,21450,21425,21400,21375,21350,21325,21300];let domR='';
-  for(let i=0;i<domP.length;i++){const isA=i<5;const vol=[42,28,15,8,55,33,67,21,45,12][i];const bgA=isA?ta.d_askColor||'33':ta.d_bidColor||'33';const bgC=isA?tc.d_askColor:tc.d_bidColor;const w=Math.min(100,vol*1.2);
+  // Extra candles for wider chart
+  const extraCandles=[{h:55,up:1},{h:40,up:0},{h:62,up:1},{h:35,up:1},{h:48,up:0},{h:70,up:1},{h:30,up:0},{h:45,up:1},{h:58,up:0},{h:42,up:1}];
+  for(const cd of extraCandles){cndl+=`<div class="candle" style="height:${cd.h}px;background:${cd.up?bc.b_upFill:bc.b_downFill};border:1px solid ${cd.up?bc.b_upOutline:bc.b_downOutline}"></div>`;}
+  const domP=[21525,21500,21475,21450,21425,21400,21375,21350,21325,21300,21275,21250];let domR='';
+  for(let i=0;i<domP.length;i++){const isA=i<6;const vol=[42,28,15,8,55,22,33,67,21,45,12,8][i];const bgA=isA?ta.d_askColor||'33':ta.d_bidColor||'33';const bgC=isA?tc.d_askColor:tc.d_bidColor;const w=Math.min(100,vol*1.2);
     domR+=`<div class="mw-dom-row" data-edit="d_bgColor" style="background:${c.main};position:relative"><div style="position:absolute;${isA?'right':'left'}:0;top:0;bottom:0;width:${w}%;background:${bgC}${bgA}"></div><span style="color:${tc.d_priceText};position:relative;z-index:1">${domP[i]}</span><span style="color:${isA?tc.d_atAskText:tc.d_atBidText};position:relative;z-index:1;font-weight:600">${vol}</span></div>`;}
   const axY=['21550','21500','21450','21400','21350','21300','21250'].map(p=>`<span>${p}</span>`).join('');
   const axX=['10:00','10:15','10:30','10:45','11:00','11:15'].map(t=>`<span>${t}</span>`).join('');
@@ -774,11 +790,26 @@ function renderPreview(override){
       <div class="mw-chart" data-edit="ch_background" style="background:${chc.ch_background};font-family:${f}">
         <div class="grid" style="background-image:linear-gradient(${chc.ch_gridLine}22 1px,transparent 1px),linear-gradient(90deg,${chc.ch_gridLine}22 1px,transparent 1px);background-size:60px 40px"></div>
         <div class="wm" style="color:${chc.ch_textFg};font-family:${f}">ENQH26</div>
+        <div class="prev-chart-info" style="color:${chc.ch_textFg};font-family:${f}">
+          <div style="font-size:9px;font-weight:600">ENQH26 · 15m</div>
+          <div><span style="color:${chc.ch_textFg}88">O</span> <span style="color:${bc.b_upFill}">21,428</span> <span style="color:${chc.ch_textFg}88">H</span> <span style="color:${bc.b_upFill}">21,445</span> <span style="color:${chc.ch_textFg}88">L</span> <span style="color:${bc.b_downFill}">21,401</span> <span style="color:${chc.ch_textFg}88">C</span> <span style="color:${bc.b_upFill}">21,432</span></div>
+          <div style="color:${ac};opacity:.7">VWAP: 21,418</div>
+          <div style="color:${bc.b_upFill};opacity:.7">Vol: 12,847</div>
+        </div>
         <div class="candles" data-edit="candles">${cndl}</div>
+        <!-- VWAP line -->
+        <div style="position:absolute;top:45%;left:10px;right:46px;height:1px;background:${ac};opacity:.35"></div>
+        <div style="position:absolute;top:calc(45% - 5px);right:48px;font-size:6px;color:${ac};opacity:.5;font-family:${f}">VWAP</div>
+        <!-- Support/resistance levels -->
+        <div style="position:absolute;top:25%;left:10px;right:46px;height:1px;background:${bc.b_downFill};opacity:.2;border-top:1px dashed ${bc.b_downFill}33"></div>
+        <div style="position:absolute;top:70%;left:10px;right:46px;height:1px;background:${bc.b_upFill};opacity:.2;border-top:1px dashed ${bc.b_upFill}33"></div>
         <div class="axis-y" data-edit="ch_axisLine" style="color:${chc.ch_textFg};border-color:${chc.ch_axisLine};background:${c.main}88">${axY}</div>
         <div class="axis-x" data-edit="ch_axisLine" style="color:${chc.ch_textFg};border-color:${chc.ch_axisLine};background:${c.main}88">${axX}</div>
         <div style="position:absolute;top:35%;left:10px;right:46px;height:1px;background:${chc.ch_crossHair};opacity:.3"></div>
-        <div style="position:absolute;top:0;bottom:18px;left:55%;width:1px;background:${chc.ch_crossHair};opacity:.3"></div></div>
+        <div style="position:absolute;top:0;bottom:18px;left:55%;width:1px;background:${chc.ch_crossHair};opacity:.3"></div>
+        <!-- Crosshair price label -->
+        <div style="position:absolute;top:calc(35% - 7px);right:0;background:${chc.ch_crossHair};color:${chc.ch_background};font-size:7px;padding:1px 4px;border-radius:2px;font-family:${f}">21,432</div>
+      </div>
       <div class="mw-dom" data-edit="d_bgColor" style="background:${tc.d_bgColor};font-family:${f}">
         <div class="mw-dom-hdr" data-edit="controlInner" style="background:${c.controlInner};color:${chc.ch_textFg}">DOM</div>
         ${domR}
@@ -789,6 +820,7 @@ function renderPreview(override){
       <span data-edit="accentColor" style="color:${ac}">● Connected</span><span>DEMO</span><span>ENQH26 21,432</span>
       <span style="color:${tc.t_upText}">▲ +12</span><span style="margin-left:auto">Feb 26</span></div>`;
 
+  document.getElementById('panelsRow2')?.remove();
   document.getElementById('panelsPrev').innerHTML=`
     <div class="prev-panel" data-edit="menuBg" style="background:${c.menuBg};font-family:${f};font-size:${fs}">
       <div class="pp-title">Context Menu</div>
@@ -797,19 +829,48 @@ function renderPreview(override){
       <div class="pp-sep" data-edit="menuSeparator" style="background:${c.menuSeparator}"></div>
       <div class="pp-item" data-edit="menuItemBg" style="background:${c.menuItemBg};color:#666">Delete</div></div>
     <div class="prev-panel" data-edit="popupBg" style="background:${c.popupBg};font-family:${f};font-size:${fs}">
-      <div class="pp-title" style="background:${c.popupTitleBg};margin:-7px -7px 5px;padding:4px 7px;border-radius:4px 4px 0 0">Chooser</div>
+      <div class="pp-title" style="background:${c.popupTitleBg};margin:-9px -9px 5px;padding:5px 9px;border-radius:var(--radius) var(--radius) 0 0">Chooser</div>
       <div style="padding:3px 6px;background:${c.controlInner};border:1px solid ${c.spinnerBorder};border-radius:3px;font-size:8px;margin-bottom:4px;color:#888" data-edit="spinnerBorder">Search...</div>
       <div class="pp-item" data-edit="chooserBg" style="background:${c.chooserBg};border-radius:2px;margin-bottom:1px">VWAP</div>
-      <div class="pp-item" data-edit="toggleSelected" style="background:${c.toggleSelected};border-radius:2px;margin-bottom:1px;border-left:2px solid ${ac}">EMA ✓</div>
+      <div class="pp-item" data-edit="toggleSelected" style="background:${c.toggleSelected};border-radius:2px;margin-bottom:1px;border-left:2px solid ${ac}">EMA</div>
       <div class="pp-item" data-edit="chooserBg" style="background:${c.chooserBg};border-radius:2px">RSI</div></div>
     <div class="prev-panel" data-edit="main" style="background:${c.main};font-family:${f};font-size:${fs}">
       <div class="pp-title">Watchlist</div>
       <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>NQ</span><span style="color:${tc.t_upText};background:${tc.t_upBg}22;padding:0 3px;border-radius:2px">21,432 ▲</span></div>
       <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>ES</span><span style="color:${tc.t_downText};background:${tc.t_downBg}22;padding:0 3px;border-radius:2px">5,892 ▼</span></div>
       <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>GC</span><span style="color:${tc.t_upText}">2,045 ▲</span></div>
-      <div style="display:flex;gap:2px;padding:3px 0;margin-top:3px">
-        <div data-edit="btn_buy" style="background:${btc.btn_buyBg};color:${btc.btn_buyText};padding:3px 6px;border-radius:3px;font-size:7px;font-weight:700;flex:1;text-align:center">Buy</div>
-        <div data-edit="btn_sell" style="background:${btc.btn_sellBg};color:${btc.btn_sellText};padding:3px 6px;border-radius:3px;font-size:7px;font-weight:700;flex:1;text-align:center">Sell</div></div></div>`;
+      <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>CL</span><span style="color:${tc.t_downText};background:${tc.t_downBg}22;padding:0 3px;border-radius:2px">78.42 ▼</span></div>
+      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>YM</span><span style="color:${tc.t_upText}">43,891 ▲</span></div></div>`;
+
+  // Order ticket + Positions panel
+  document.getElementById('panelsPrev').insertAdjacentHTML('afterend',`
+  <div class="prev-row2" id="panelsRow2">
+    <div class="prev-order-ticket" data-edit="popupBg" style="background:${c.popupBg};font-family:${f};color:${chc.ch_textFg}">
+      <div class="ot-title" style="color:${ac}">Order Ticket</div>
+      <div class="ot-row"><span style="opacity:.6">Instrument</span><span class="ot-input" style="background:${c.controlInner};border-color:${c.spinnerBorder};color:${chc.ch_textFg}">ENQH26</span></div>
+      <div class="ot-row"><span style="opacity:.6">Side</span><div style="display:flex;gap:3px"><span style="background:${btc.btn_buyBg};color:${btc.btn_buyText};padding:2px 8px;border-radius:3px;font-size:7px;font-weight:700">BUY</span><span style="background:${c.controlInner};color:#666;padding:2px 8px;border-radius:3px;font-size:7px">SELL</span></div></div>
+      <div class="ot-row"><span style="opacity:.6">Quantity</span><span class="ot-input" style="background:${c.controlInner};border-color:${c.spinnerBorder};color:${chc.ch_textFg}">2</span></div>
+      <div class="ot-row"><span style="opacity:.6">Type</span><span class="ot-input" style="background:${c.controlInner};border-color:${c.spinnerBorder};color:${chc.ch_textFg}">Limit</span></div>
+      <div class="ot-row"><span style="opacity:.6">Price</span><span class="ot-input" style="background:${c.controlInner};border-color:${c.spinnerBorder};color:${tc.t_upText}">21,430.00</span></div>
+      <div class="ot-row"><span style="opacity:.6">TIF</span><span class="ot-input" style="background:${c.controlInner};border-color:${c.spinnerBorder};color:${chc.ch_textFg}">DAY</span></div>
+      <div style="display:flex;gap:4px;margin-top:6px">
+        <div style="flex:1;text-align:center;background:${btc.btn_buyBg};color:${btc.btn_buyText};padding:4px;border-radius:4px;font-size:8px;font-weight:700">Submit Order</div>
+      </div>
+    </div>
+    <div class="prev-positions" data-edit="main" style="background:${c.main};font-family:${f};color:${chc.ch_textFg}">
+      <div class="pos-title" style="color:${ac}">Positions</div>
+      <div class="pos-header"><span style="flex:1.5">Symbol</span><span>Side</span><span>Qty</span><span>Entry</span><span>Last</span><span>P&L</span></div>
+      <div class="pos-row"><span style="flex:1.5;font-weight:600">ENQH26</span><span style="color:${btc.btn_buyBg}">Long</span><span>2</span><span>21,380</span><span>21,432</span><span style="color:${tc.t_upText};font-weight:600">+$520</span></div>
+      <div class="pos-row"><span style="flex:1.5;font-weight:600">ESH26</span><span style="color:${btc.btn_sellBg}">Short</span><span>1</span><span>5,910</span><span>5,892</span><span style="color:${tc.t_upText};font-weight:600">+$900</span></div>
+      <div class="pos-row"><span style="flex:1.5;font-weight:600">GCJ26</span><span style="color:${btc.btn_buyBg}">Long</span><span>1</span><span>2,055</span><span>2,045</span><span style="color:${tc.t_downText};font-weight:600">-$1,000</span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:4px;border-top:1px solid rgba(255,255,255,.06);font-size:8px">
+        <span style="opacity:.6">Total P&L</span><span style="color:${tc.t_upText};font-weight:700">+$420.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:8px;opacity:.5">
+        <span>Account</span><span>DEMO-12345</span>
+      </div>
+    </div>
+  </div>`);
 }
 
 // ==================== CSS GEN ====================
