@@ -346,14 +346,41 @@
       </div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:8px" id="indStatus"></div>
       <div class="search-wrap"><input class="search-box" id="indSearch" type="text" placeholder="Search indicators or hex (#ff0000)..." oninput="filterIndicators()"></div>
-      <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
         <button class="btn btn-sm" onclick="batchDarken()">Darken 15%</button>
         <button class="btn btn-sm" onclick="batchLighten()">Lighten 15%</button>
         <button class="btn btn-sm" onclick="batchDesaturate()">Desaturate</button>
+        <button class="btn btn-sm" onclick="swapBidAsk()">Swap Bid/Ask</button>
+        <button class="btn btn-sm" onclick="showFindReplace()">Find & Replace</button>
+      </div>
+      <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
         <button class="btn btn-sm" onclick="backupWorkspace()">Backup</button>
         <button class="btn btn-sm" onclick="restoreWorkspaceBackup()">Restore</button>
         <button class="btn btn-sm" onclick="exportIndicatorColors()">Export</button>
         <button class="btn btn-sm" onclick="importIndicatorColors()">Import</button>
+      </div>
+      <!-- Find & Replace panel (hidden by default) -->
+      <div id="findReplacePanel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
+        <div style="font-size:10px;font-weight:600;margin-bottom:6px;color:var(--text2)">Find & Replace Color</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <input type="color" id="frFind" value="#ff0000" style="width:28px;height:28px;border:none;cursor:pointer;border-radius:4px" oninput="document.getElementById('frFindHex').value=this.value">
+          <input type="text" id="frFindHex" value="#ff0000" style="width:70px;font-size:10px;padding:3px 6px;background:var(--bg);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-family:monospace" oninput="document.getElementById('frFind').value=this.value">
+          <span style="font-size:10px;color:var(--text3)">→</span>
+          <input type="color" id="frReplace" value="#cc0000" style="width:28px;height:28px;border:none;cursor:pointer;border-radius:4px" oninput="document.getElementById('frReplaceHex').value=this.value">
+          <input type="text" id="frReplaceHex" value="#cc0000" style="width:70px;font-size:10px;padding:3px 6px;background:var(--bg);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-family:monospace" oninput="document.getElementById('frReplace').value=this.value">
+          <button class="btn btn-sm" onclick="execFindReplace()">Replace All</button>
+          <button class="btn btn-sm" onclick="document.getElementById('findReplacePanel').style.display='none'">Close</button>
+        </div>
+        <div id="frStatus" style="font-size:9px;color:var(--text3)"></div>
+      </div>
+      <!-- Preset Indicator Themes -->
+      <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:9px;color:var(--text3);align-self:center;margin-right:2px">Presets:</span>
+        <button class="btn btn-sm" onclick="applyIndPreset('dark')">Dark Mode</button>
+        <button class="btn btn-sm" onclick="applyIndPreset('contrast')">High Contrast</button>
+        <button class="btn btn-sm" onclick="applyIndPreset('colorblind')">Colorblind</button>
+        <button class="btn btn-sm" onclick="applyIndPreset('ocean')">Ocean</button>
+        <button class="btn btn-sm" onclick="applyIndPreset('ember')">Ember</button>
       </div>
       <div id="indContainer"></div>
       <div id="indEmpty" style="text-align:center;padding:30px;color:var(--text3);font-size:11px">
@@ -1244,7 +1271,7 @@ function renderIndicators(studies) {
 
       const header = document.createElement('div');
       header.className = 'ind-study-header';
-      header.innerHTML = `<span class="arrow">▶</span><span class="sname">${escHtml(study.displayName)}</span><span class="stype">${escHtml(study.source.replace('.json', ''))}</span><span class="scount">${study.colors.length}</span>`;
+      header.innerHTML = `<span class="arrow">▶</span><span class="sname">${escHtml(study.displayName)}</span><span class="stype">${escHtml(study.source.replace('.json', ''))}</span>${study.colors.length > 1 ? `<button class="btn btn-sm harmony-btn" onclick="event.stopPropagation();showHarmony('${study.id}')" title="Generate color harmony" style="padding:1px 5px;font-size:8px;margin-right:4px">Harmony</button>` : ''}<span class="scount">${study.colors.length}</span>`;
       header.onclick = () => toggleStudy(study.id);
 
       const colors = document.createElement('div');
@@ -1515,6 +1542,288 @@ async function exportIndicatorColors() {
   }));
   const result = await window.electronAPI.exportIndicatorColors(exportData);
   if (result.ok) document.getElementById('indStatus').textContent = 'Exported to ' + result.path.split('/').pop();
+}
+
+// ==================== SWAP BID/ASK ====================
+
+function swapBidAsk() {
+  if (indStudies.length === 0) return;
+  const bidKeys = ['bidColor','bidFill','bidText','atBidText','atBidFill','mboBidFill','buyColor','buyFill'];
+  const askKeys = ['askColor','askFill','askText','atAskText','atAskFill','mboAskFill','sellColor','sellFill'];
+  // Also swap by label keywords
+  let swapped = 0;
+
+  for (const study of indStudies) {
+    const colors = study.colors;
+    // Find bid/ask pairs by key patterns
+    for (let i = 0; i < colors.length; i++) {
+      for (let j = i + 1; j < colors.length; j++) {
+        const a = colors[i], b = colors[j];
+        const aKey = a.key.toLowerCase(), bKey = b.key.toLowerCase();
+        const aLabel = a.label.toLowerCase(), bLabel = b.label.toLowerCase();
+
+        const isBidAsk = (
+          (bidKeys.some(k => aKey.includes(k.toLowerCase())) && askKeys.some(k => bKey.includes(k.toLowerCase()))) ||
+          (askKeys.some(k => aKey.includes(k.toLowerCase())) && bidKeys.some(k => bKey.includes(k.toLowerCase()))) ||
+          (aLabel.includes('bid') && bLabel.includes('ask')) ||
+          (aLabel.includes('ask') && bLabel.includes('bid')) ||
+          (aLabel.includes('buy') && bLabel.includes('sell')) ||
+          (aLabel.includes('sell') && bLabel.includes('buy')) ||
+          (aLabel.includes('up') && bLabel.includes('down') && aLabel.replace('up','') === bLabel.replace('down','')) ||
+          (aLabel.includes('down') && bLabel.includes('up') && aLabel.replace('down','') === bLabel.replace('up',''))
+        );
+
+        if (isBidAsk) {
+          const tmpHex = a.hex;
+          trackIndChange(study.id, a.key, b.hex);
+          trackIndChange(study.id, b.key, tmpHex);
+          // Update UI
+          const pa = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${a.key}"]`);
+          const pb = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${b.key}"]`);
+          const ha = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${a.key}"]`);
+          const hb = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${b.key}"]`);
+          if (pa) pa.value = b.hex;
+          if (pb) pb.value = tmpHex;
+          if (ha) ha.value = b.hex;
+          if (hb) hb.value = tmpHex;
+          swapped++;
+        }
+      }
+    }
+  }
+  document.getElementById('indStatus').textContent = `Swapped ${swapped} bid/ask color pair${swapped !== 1 ? 's' : ''}`;
+}
+
+// ==================== FIND & REPLACE ====================
+
+function showFindReplace() {
+  const panel = document.getElementById('findReplacePanel');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+function execFindReplace() {
+  const findHex = document.getElementById('frFind').value.toLowerCase();
+  const replaceHex = document.getElementById('frReplace').value.toLowerCase();
+  if (findHex === replaceHex) return;
+  let count = 0;
+
+  for (const study of indStudies) {
+    for (const c of study.colors) {
+      if (c.hex.toLowerCase() === findHex) {
+        trackIndChange(study.id, c.key, replaceHex);
+        const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
+        const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
+        if (picker) picker.value = replaceHex;
+        if (hexInput) hexInput.value = replaceHex;
+        count++;
+      }
+    }
+  }
+  document.getElementById('frStatus').textContent = `Replaced ${count} instance${count !== 1 ? 's' : ''} of ${findHex} → ${replaceHex}`;
+  document.getElementById('indStatus').textContent = `Replaced ${count} color${count !== 1 ? 's' : ''}`;
+}
+
+// ==================== PRESET INDICATOR THEMES ====================
+
+const IND_PRESETS = {
+  dark: {
+    name: 'Dark Mode',
+    desc: 'Muted colors optimized for dark backgrounds',
+    palette: {
+      primary: ['#6366f1','#818cf8','#4f46e5','#a5b4fc','#3730a3'],
+      secondary: ['#22d3ee','#06b6d4','#0891b2','#67e8f9','#155e75'],
+      accent: ['#f472b6','#ec4899','#db2777','#f9a8d4','#9d174d'],
+      neutral: ['#94a3b8','#64748b','#475569','#cbd5e1','#334155'],
+      signal: { up: '#34d399', down: '#f87171', bid: '#3b82f6', ask: '#ef4444' }
+    }
+  },
+  contrast: {
+    name: 'High Contrast',
+    desc: 'Maximum readability, bold distinct colors',
+    palette: {
+      primary: ['#ffff00','#00ff00','#ff00ff','#00ffff','#ff8800'],
+      secondary: ['#ffffff','#ff0000','#0088ff','#88ff00','#ff0088'],
+      accent: ['#ffaa00','#00ffaa','#aa00ff','#ff5500','#00aaff'],
+      neutral: ['#ffffff','#cccccc','#999999','#666666','#e0e0e0'],
+      signal: { up: '#00ff00', down: '#ff0000', bid: '#00aaff', ask: '#ff4444' }
+    }
+  },
+  colorblind: {
+    name: 'Colorblind Safe',
+    desc: 'Deuteranopia/Protanopia friendly (blue-orange)',
+    palette: {
+      primary: ['#0077bb','#33bbee','#009988','#0055aa','#44aa99'],
+      secondary: ['#ee7733','#cc3311','#ee3377','#ff8844','#bb5566'],
+      accent: ['#bbbbbb','#ddcc77','#999933','#aaaa44','#ccbb66'],
+      neutral: ['#bbbbbb','#888888','#555555','#dddddd','#444444'],
+      signal: { up: '#0077bb', down: '#ee7733', bid: '#33bbee', ask: '#cc3311' }
+    }
+  },
+  ocean: {
+    name: 'Ocean',
+    desc: 'Cool blue-green tones with warm accents',
+    palette: {
+      primary: ['#0ea5e9','#0284c7','#0369a1','#38bdf8','#075985'],
+      secondary: ['#14b8a6','#0d9488','#0f766e','#2dd4bf','#115e59'],
+      accent: ['#f59e0b','#d97706','#b45309','#fbbf24','#92400e'],
+      neutral: ['#7dd3fc','#bae6fd','#e0f2fe','#38bdf8','#0c4a6e'],
+      signal: { up: '#14b8a6', down: '#f97316', bid: '#0ea5e9', ask: '#ef4444' }
+    }
+  },
+  ember: {
+    name: 'Ember',
+    desc: 'Warm fire tones with cool accents',
+    palette: {
+      primary: ['#ef4444','#dc2626','#b91c1c','#f87171','#991b1b'],
+      secondary: ['#f97316','#ea580c','#c2410c','#fb923c','#9a3412'],
+      accent: ['#8b5cf6','#7c3aed','#6d28d9','#a78bfa','#5b21b6'],
+      neutral: ['#fca5a5','#fecaca','#fee2e2','#f87171','#450a0a'],
+      signal: { up: '#22c55e', down: '#ef4444', bid: '#3b82f6', ask: '#dc2626' }
+    }
+  }
+};
+
+function applyIndPreset(presetId) {
+  if (indStudies.length === 0) { document.getElementById('indStatus').textContent = 'Scan first'; return; }
+  const preset = IND_PRESETS[presetId];
+  if (!preset) return;
+
+  // Build a flat color array from palette
+  const allColors = [...preset.palette.primary, ...preset.palette.secondary, ...preset.palette.accent, ...preset.palette.neutral];
+  let applied = 0;
+
+  for (const study of indStudies) {
+    if (study.colors.length === 0) continue;
+
+    for (let i = 0; i < study.colors.length; i++) {
+      const c = study.colors[i];
+      const label = c.label.toLowerCase();
+      let newHex;
+
+      // Smart assignment based on label semantics
+      if (label.includes('bid') || label.includes('buy') || label.includes('up')) {
+        newHex = preset.palette.signal.bid || preset.palette.signal.up;
+      } else if (label.includes('ask') || label.includes('sell') || label.includes('down')) {
+        newHex = preset.palette.signal.ask || preset.palette.signal.down;
+      } else if (label.includes('background') || label.includes('fill') || label.includes('bg')) {
+        newHex = allColors[(i * 3) % allColors.length] + '44'; // semi-transparent
+        newHex = newHex.slice(0, 7); // keep hex only, alpha handled separately
+      } else {
+        // Distribute evenly from palette
+        newHex = allColors[i % allColors.length];
+      }
+
+      if (newHex) {
+        trackIndChange(study.id, c.key, newHex);
+        const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
+        const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
+        if (picker) picker.value = newHex;
+        if (hexInput) hexInput.value = newHex;
+        applied++;
+      }
+    }
+  }
+
+  document.getElementById('indStatus').textContent = `Applied "${preset.name}" to ${applied} colors`;
+}
+
+// ==================== COLOR HARMONY GENERATOR ====================
+// Available via right-click on any study header (contextmenu planned) or programmatic use
+
+function generateHarmony(baseHex, mode, count) {
+  const [h, s, l] = hexToHSL(baseHex);
+  const colors = [baseHex];
+
+  switch (mode) {
+    case 'complementary':
+      colors.push(hslToHex((h + 180) % 360, s, l));
+      break;
+    case 'analogous':
+      for (let i = 1; i < count; i++) colors.push(hslToHex((h + i * 30) % 360, s, l));
+      break;
+    case 'triadic':
+      colors.push(hslToHex((h + 120) % 360, s, l), hslToHex((h + 240) % 360, s, l));
+      break;
+    case 'split':
+      colors.push(hslToHex((h + 150) % 360, s, l), hslToHex((h + 210) % 360, s, l));
+      break;
+    case 'shades':
+      for (let i = 1; i < count; i++) colors.push(hslToHex(h, s, Math.max(5, l - i * 12)));
+      break;
+    case 'tints':
+      for (let i = 1; i < count; i++) colors.push(hslToHex(h, s, Math.min(95, l + i * 12)));
+      break;
+  }
+  return colors;
+}
+
+function showHarmony(studyId) {
+  const study = indStudies.find(s => s.id === studyId);
+  if (!study || study.colors.length < 2) return;
+
+  // Toggle existing panel
+  let existing = document.getElementById('harmony-panel-' + studyId);
+  if (existing) { existing.remove(); return; }
+
+  // Remove other harmony panels
+  document.querySelectorAll('.harmony-panel').forEach(p => p.remove());
+
+  const colorsDiv = document.getElementById('ind-colors-' + studyId);
+  if (!colorsDiv) return;
+
+  // Open the study colors
+  colorsDiv.classList.add('open');
+  document.querySelector(`#ind-${studyId} .arrow`)?.classList.add('open');
+
+  const panel = document.createElement('div');
+  panel.id = 'harmony-panel-' + studyId;
+  panel.className = 'harmony-panel';
+  panel.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;margin:6px 0';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const baseColor = study.colors[0].hex;
+  const modes = ['complementary','analogous','triadic','split','shades','tints'];
+
+  panel.innerHTML = `
+    <div style="font-size:10px;font-weight:600;color:var(--text2);margin-bottom:6px">Color Harmony for ${escHtml(study.displayName)}</div>
+    <div style="display:flex;gap:4px;align-items:center;margin-bottom:6px">
+      <span style="font-size:9px;color:var(--text3)">Base:</span>
+      <input type="color" id="harmony-base-${studyId}" value="${baseColor}" style="width:24px;height:24px;border:none;cursor:pointer;border-radius:4px">
+      ${modes.map(m => `<button class="btn btn-sm" onclick="applyHarmony('${studyId}','${m}')" style="font-size:8px;padding:2px 5px">${m.charAt(0).toUpperCase() + m.slice(1)}</button>`).join('')}
+      <button class="btn btn-sm" onclick="this.parentElement.parentElement.remove()" style="font-size:8px;padding:2px 5px;margin-left:auto">Close</button>
+    </div>
+    <div id="harmony-preview-${studyId}" style="display:flex;gap:2px;height:16px;border-radius:3px;overflow:hidden"></div>
+  `;
+
+  colorsDiv.insertBefore(panel, colorsDiv.firstChild);
+}
+
+function applyHarmony(studyId, mode) {
+  const study = indStudies.find(s => s.id === studyId);
+  if (!study) return;
+
+  const baseInput = document.getElementById('harmony-base-' + studyId);
+  const baseHex = baseInput ? baseInput.value : study.colors[0].hex;
+  const count = study.colors.length;
+  const colors = generateHarmony(baseHex, mode, count);
+
+  // Apply to study colors
+  for (let i = 0; i < study.colors.length; i++) {
+    const newHex = colors[i % colors.length];
+    trackIndChange(study.id, study.colors[i].key, newHex);
+    const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${study.colors[i].key}"]`);
+    const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${study.colors[i].key}"]`);
+    if (picker) picker.value = newHex;
+    if (hexInput) hexInput.value = newHex;
+  }
+
+  // Update preview
+  const preview = document.getElementById('harmony-preview-' + studyId);
+  if (preview) {
+    preview.innerHTML = colors.map(c => `<div style="flex:1;background:${c}"></div>`).join('');
+  }
+
+  document.getElementById('indStatus').textContent = `Applied ${mode} harmony to ${study.displayName}`;
 }
 
 async function importIndicatorColors() {
