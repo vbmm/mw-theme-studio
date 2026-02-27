@@ -1164,7 +1164,7 @@ function renderIndicators(studies) {
   // Group by type
   const groups = {};
   for (const s of studies) {
-    const groupName = getStudyGroupName(s.type);
+    const groupName = getStudyGroupName(s);
     if (!groups[groupName]) groups[groupName] = [];
     groups[groupName].push(s);
   }
@@ -1207,15 +1207,16 @@ function renderIndicators(studies) {
   }
 }
 
-function getStudyGroupName(type) {
-  const map = {
-    'profile': 'Volume Profile',
-    'bidAsk': 'Footprint',
-    'study': 'Studies & Indicators',
-    'chartTheme': 'Chart Themes',
-    'barTheme': 'Bar Themes',
-  };
-  return map[type] || 'Other';
+function getStudyGroupName(study) {
+  if (study.type === 'chartTheme') return 'Chart Themes';
+  if (study.type === 'barTheme') return 'Bar Themes';
+  if (study.type === 'profile') return 'Volume Profile / Imprint';
+  if (study.type === 'bidAsk') return 'Footprint';
+  if (study.sid === 'VOLUME') return 'Volume';
+  if (study.sid === 'ORDER_HEATMAP') return 'Order Flow';
+  if (study.sid === 'BID_TRADES' || study.sid === 'ASK_TRADES') return 'Order Flow';
+  if (study.source === 'config.json') return 'Workspace Config';
+  return 'Studies & Indicators';
 }
 
 function escHtml(s) {

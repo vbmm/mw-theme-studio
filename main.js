@@ -594,20 +594,133 @@ function toMWColor(hex, alpha, originalFormat) {
   return originalFormat.length === 8 ? h + (alpha || 255).toString(16).toUpperCase().padStart(2, '0') : h;
 }
 
-// Study type display names
-const STUDY_NAMES = {
+// Study ID → display name mapping
+const SID_NAMES = {
+  'VIMPRINT': 'Volume Imprint',
+  'SMA': 'Simple Moving Average',
+  'EMA': 'Exponential Moving Average',
+  'WMA': 'Weighted Moving Average',
+  'DEMA': 'Double EMA',
+  'TEMA': 'Triple EMA',
+  'VWAP': 'VWAP',
+  'VOLUME': 'Volume',
+  'ORDER_HEATMAP': 'Order Heatmap',
+  'BID_TRADES': 'Bid Trades',
+  'ASK_TRADES': 'Ask Trades',
+  'HARMONIC': 'Harmonic Patterns',
+  'HURST_CYCLES': 'Hurst Cycles',
+  'ELLIOTT_WAVE': 'Elliott Wave',
+  'RSI': 'RSI',
+  'MACD': 'MACD',
+  'STOCHASTIC': 'Stochastic',
+  'BOLLINGER': 'Bollinger Bands',
+  'ATR': 'ATR',
+  'ADX': 'ADX',
+  'CCI': 'CCI',
+  'MFI': 'Money Flow Index',
+  'OBV': 'On Balance Volume',
+  'ICHIMOKU': 'Ichimoku Cloud',
+  'PIVOT': 'Pivot Points',
+  'TPO': 'TPO Profile',
+  'VPOC': 'VPOC',
+  'DELTA': 'Delta',
+  'CUM_DELTA': 'Cumulative Delta',
+  'FOOTPRINT': 'Footprint',
+  'DOM': 'DOM',
+  'TIME_SALES': 'Time & Sales',
+  'IMBALANCE': 'Imbalance',
+  'KELTNER': 'Keltner Channel',
+  'DONCHIAN': 'Donchian Channel',
+  'PARABOLIC': 'Parabolic SAR',
+  'SUPERTREND': 'SuperTrend',
+  'WILLIAMS_R': 'Williams %R',
+  'FIBS': 'Fibonacci',
+  'VOL_PROFILE': 'Volume Profile',
+  'MARKET_PROFILE': 'Market Profile',
+};
+
+// Settings type → display name (fallback)
+const STYPE_NAMES = {
   'profile': 'Volume Profile',
   'bidAsk': 'Bid/Ask Footprint',
-  'study': 'Study/Indicator',
-  'heatmap': 'Order Heatmap',
-  'depthOfMarket': 'DOM',
-  'timeSales': 'Time & Sales',
-  'vpoc': 'VPOC',
-  'delta': 'Delta',
-  'cumDelta': 'Cumulative Delta',
-  'tpo': 'TPO Profile',
-  'imbalance': 'Imbalance',
+  'study': 'Study',
+  'heatmap': 'Heatmap',
 };
+
+function extractColors(settings) {
+  const colors = [];
+  // Extract from settings.colors array
+  if (Array.isArray(settings.colors)) {
+    for (const c of settings.colors) {
+      if (c.name && c.color) {
+        const parsed = parseMWColor(c.color);
+        if (parsed) {
+          colors.push({
+            key: c.name,
+            label: c.name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
+            hex: parsed.hex, alpha: parsed.alpha,
+            enabled: c.enabled !== false, original: c.color
+          });
+        }
+      }
+    }
+  }
+  // Extract inline color properties
+  for (const [k, v] of Object.entries(settings)) {
+    if (typeof v === 'string' && (k.toLowerCase().includes('color') || k.toLowerCase().includes('fill'))
+        && k !== 'adjLadderColor' && k !== 'colorMap') {
+      const parsed = parseMWColor(v);
+      if (parsed) {
+        colors.push({
+          key: k,
+          label: k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
+          hex: parsed.hex, alpha: parsed.alpha,
+          enabled: true, original: v, inlineKey: k
+        });
+      }
+    }
+  }
+  // Extract colorMap (heatmaps)
+  if (settings.colorMap && settings.colorMap.colors) {
+    settings.colorMap.colors.forEach((c, i) => {
+      const parsed = parseMWColor(c);
+      if (parsed) {
+        colors.push({
+          key: `colorMap_${i}`, label: `Heatmap Color ${i + 1}`,
+          hex: parsed.hex, alpha: parsed.alpha,
+          enabled: true, original: c, mapIndex: i
+        });
+      }
+    });
+  }
+  // Extract path colors (line, bar, indicator colors)
+  if (Array.isArray(settings.paths)) {
+    for (const p of settings.paths) {
+      if (p.c1) {
+        const parsed = parseMWColor(p.c1);
+        if (parsed) {
+          colors.push({
+            key: `path_${p.name}_c1`, label: `${(p.name || 'Line').replace(/([A-Z])/g, ' $1').trim()} Color`,
+            hex: parsed.hex, alpha: parsed.alpha,
+            enabled: p.enabled !== false, original: p.c1
+          });
+        }
+      }
+    }
+  }
+  return colors;
+}
+
+function getSidDisplayName(sid) {
+  if (!sid) return '';
+  // Handle custom studies (e.g. "com.clawd;PO3_GOLDBACH_LEVELS")
+  if (sid.includes(';')) {
+    const parts = sid.split(';');
+    const name = parts[parts.length - 1];
+    return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+  return SID_NAMES[sid] || sid.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
 
 function scanStudiesFromJSON(obj, sourceFile, results, depth = 0) {
   if (depth > 30 || !obj || typeof obj !== 'object') return;
@@ -616,80 +729,69 @@ function scanStudiesFromJSON(obj, sourceFile, results, depth = 0) {
     return;
   }
 
-  const settings = obj.settings;
-  if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
-    const study = { source: sourceFile, type: '', name: '', colors: [] };
-    study.type = settings.type || obj.factory || obj.type || '';
-    study.name = settings.name || settings.tabName || settings.id || '';
+  // Check if this object has a 'figures' array (chart graph container)
+  if (Array.isArray(obj.figures)) {
+    for (const fig of obj.figures) {
+      if (!fig || typeof fig !== 'object') continue;
+      const sid = fig.sid || '';
+      const ns = fig.ns || '';
+      const settings = fig.settings;
+      if (!settings || typeof settings !== 'object') continue;
 
-    // Extract colors from settings.colors array (common format)
-    if (Array.isArray(settings.colors)) {
-      for (const c of settings.colors) {
-        if (c.name && c.color) {
-          const parsed = parseMWColor(c.color);
-          if (parsed) {
-            study.colors.push({
-              key: c.name,
-              label: c.name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
-              hex: parsed.hex,
-              alpha: parsed.alpha,
-              enabled: c.enabled !== false,
-              original: c.color,
-              arrayIndex: settings.colors.indexOf(c)
-            });
-          }
-        }
-      }
-    }
+      const colors = extractColors(settings);
+      if (colors.length === 0) continue;
 
-    // Extract inline color properties (vpFontColor, bidColor, etc)
-    for (const [k, v] of Object.entries(settings)) {
-      if (typeof v === 'string' && (k.toLowerCase().includes('color') || k.toLowerCase().includes('fill'))
-          && k !== 'adjLadderColor' && k !== 'colorMap') {
-        const parsed = parseMWColor(v);
-        if (parsed) {
-          study.colors.push({
-            key: k,
-            label: k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
-            hex: parsed.hex,
-            alpha: parsed.alpha,
-            enabled: true,
-            original: v,
-            inlineKey: k
-          });
-        }
-      }
-    }
+      const displayName = getSidDisplayName(sid) || STYPE_NAMES[settings.type] || settings.type || 'Unknown';
+      const instrument = extractInstrument(obj, fig);
 
-    // Extract colorMap (heatmaps)
-    if (settings.colorMap && settings.colorMap.colors) {
-      settings.colorMap.colors.forEach((c, i) => {
-        const parsed = parseMWColor(c);
-        if (parsed) {
-          study.colors.push({
-            key: `colorMap_${i}`,
-            label: `Heatmap Color ${i + 1}`,
-            hex: parsed.hex,
-            alpha: parsed.alpha,
-            enabled: true,
-            original: c,
-            mapIndex: i
-          });
-        }
+      results.push({
+        source: sourceFile,
+        type: settings.type || 'study',
+        sid: sid,
+        ns: ns,
+        id: `${sid}_${fig.id || results.length}`,
+        name: sid,
+        displayName: instrument ? `${displayName} (${instrument})` : displayName,
+        colors: colors
       });
     }
+    // Don't return — keep scanning nested objects
+  }
 
-    if (study.colors.length > 0) {
-      // Generate unique ID
-      study.id = `${study.type}_${study.name}_${results.length}`;
-      study.displayName = study.name || STUDY_NAMES[study.type] || study.type || 'Unknown Study';
-      results.push(study);
+  // Also handle non-figure settings with colors (DOM, table, etc from config.json)
+  if (obj.settings && typeof obj.settings === 'object' && !Array.isArray(obj.settings) && !obj.sid) {
+    const colors = extractColors(obj.settings);
+    if (colors.length > 0 && !Array.isArray(obj.figures)) {
+      results.push({
+        source: sourceFile,
+        type: obj.settings.type || obj.type || '',
+        sid: '',
+        ns: '',
+        id: `cfg_${obj.type || ''}_${results.length}`,
+        name: obj.settings.type || obj.type || '',
+        displayName: STYPE_NAMES[obj.settings.type] || obj.settings.type || obj.type || 'Config',
+        colors: colors
+      });
     }
   }
 
   for (const v of Object.values(obj)) {
     if (v && typeof v === 'object') scanStudiesFromJSON(v, sourceFile, results, depth + 1);
   }
+}
+
+// Try to extract the instrument symbol from the JSON path context
+function extractInstrument(graphObj, fig) {
+  // The instrument is often a key like "EPH26.CQG:1" in the parent
+  // We check the parent object for keys that look like instrument symbols
+  if (!graphObj) return '';
+  for (const key of Object.keys(graphObj)) {
+    if (key.match(/^[A-Z0-9]+\.[A-Z]+/) || key.match(/^[A-Z]{2,}\d/)) {
+      // Extract just the root symbol (e.g., "EPH26" from "EPH26.CQG:1")
+      return key.split('.')[0];
+    }
+  }
+  return '';
 }
 
 ipcMain.handle('scan-indicators', async () => {
