@@ -339,11 +339,14 @@
     </div>
 
     <div class="tab-content" id="tab-indicators">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-        <button class="btn btn-sm" onclick="scanIndicators()" id="indScanBtn">Scan Workspace</button>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+        <select id="wsSelect" style="flex:1;font-size:10px;padding:4px 8px;background:var(--surface);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-family:inherit" onchange="scanIndicators(this.value)">
+          <option value="">Select workspace...</option>
+        </select>
+        <button class="btn btn-sm" onclick="scanIndicators(document.getElementById('wsSelect').value)" id="indScanBtn">Scan</button>
         <button class="btn btn-sm" onclick="saveIndicatorChanges()" id="indSaveBtn" style="display:none">Save Changes</button>
-        <span style="font-size:10px;color:var(--text3)" id="indStatus"></span>
       </div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px" id="indStatus"></div>
       <div class="search-wrap"><input class="search-box" id="indSearch" type="text" placeholder="Search indicators..." oninput="filterIndicators()"></div>
       <div id="indContainer"></div>
       <div id="indEmpty" style="text-align:center;padding:30px;color:var(--text3);font-size:11px">
@@ -1113,7 +1116,36 @@ init();
 let indStudies = [];
 let indChanges = {}; // {studyId: {colorKey: {hex, alpha}}}
 
-async function scanIndicators() {
+// Load workspaces on tab first visit
+let wsLoaded = false;
+async function loadWorkspaces() {
+  if (wsLoaded) return;
+  try {
+    const result = await window.electronAPI.listWorkspaces();
+    if (result.ok && result.workspaces.length) {
+      const sel = document.getElementById('wsSelect');
+      sel.innerHTML = '';
+      for (const ws of result.workspaces) {
+        const opt = document.createElement('option');
+        opt.value = ws; opt.textContent = ws;
+        sel.appendChild(opt);
+      }
+      sel.value = result.active || result.workspaces[0];
+      wsLoaded = true;
+      // Auto-scan first workspace
+      scanIndicators(sel.value);
+    }
+  } catch {}
+}
+
+// Patch switchTab to trigger workspace load
+const _origSwitchTab = switchTab;
+switchTab = function(t) {
+  _origSwitchTab(t);
+  if (t === 'indicators') loadWorkspaces();
+};
+
+async function scanIndicators(wsName) {
   const btn = document.getElementById('indScanBtn');
   const status = document.getElementById('indStatus');
   const container = document.getElementById('indContainer');
@@ -1123,7 +1155,7 @@ async function scanIndicators() {
   status.textContent = '';
 
   try {
-    const result = await window.electronAPI.scanIndicators();
+    const result = await window.electronAPI.scanIndicators(wsName || '');
     if (!result.ok) {
       status.textContent = result.error || 'Scan failed';
       empty.textContent = result.error || 'No indicators found.';
@@ -1216,12 +1248,14 @@ function renderIndicators(studies) {
 function getStudyGroupName(study) {
   if (study.type === 'chartTheme') return 'Chart Themes';
   if (study.type === 'barTheme') return 'Bar Themes';
+  if (study.type === 'drawing') return 'Drawing Tools';
   if (study.type === 'profile') return 'Volume Profile / Imprint';
   if (study.type === 'bidAsk') return 'Footprint';
   if (study.sid === 'VOLUME') return 'Volume';
   if (study.sid === 'ORDER_HEATMAP') return 'Order Flow';
   if (study.sid === 'BID_TRADES' || study.sid === 'ASK_TRADES') return 'Order Flow';
   if (study.source === 'config.json') return 'Workspace Config';
+  if (study.source === 'defaults.json') return 'Study Defaults';
   return 'Studies & Indicators';
 }
 

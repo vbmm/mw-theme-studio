@@ -647,6 +647,35 @@ const STYPE_NAMES = {
   'heatmap': 'Heatmap',
 };
 
+// Drawing tool / default ID → display name
+const DRAWING_NAMES = {
+  'fib_range': 'Fibonacci Range',
+  'fib_retracement': 'Fibonacci Retracement',
+  'fib_extension': 'Fibonacci Extension',
+  'fib_expansion': 'Fibonacci Expansion',
+  'fib_fan': 'Fibonacci Fan',
+  'fib_channel': 'Fibonacci Channel',
+  'fib_circle': 'Fibonacci Circle',
+  'fib_arc': 'Fibonacci Arc',
+  'gann_retracement': 'Gann Retracement',
+  'gann_extension': 'Gann Extension',
+  'gann_fan': 'Gann Fan',
+  'labelLine': 'Label Line',
+  'label': 'Label',
+  'box': 'Box',
+  'rectangle': 'Rectangle',
+  'pl1_buy': 'PL Buy Order',
+  'pl1_sell': 'PL Sell Order',
+  'pl_buy': 'PL Buy',
+  'pl_sell': 'PL Sell',
+  'trendLine': 'Trend Line',
+  'hLine': 'Horizontal Line',
+  'vLine': 'Vertical Line',
+  'ray': 'Ray',
+  'channel': 'Channel',
+  'pitchfork': 'Pitchfork',
+};
+
 function extractColors(settings) {
   const colors = [];
   // Extract from settings.colors array
@@ -750,13 +779,13 @@ function extractColors(settings) {
 
 function getSidDisplayName(sid) {
   if (!sid) return '';
-  // Handle custom studies (e.g. "com.clawd;PO3_GOLDBACH_LEVELS")
+  // Handle namespaced IDs (e.g. "com.clawd;PO3_GOLDBACH_LEVELS" or "com.motivewave;VWAP")
   if (sid.includes(';')) {
     const parts = sid.split(';');
     const name = parts[parts.length - 1];
-    return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return SID_NAMES[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
-  return SID_NAMES[sid] || sid.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return SID_NAMES[sid] || DRAWING_NAMES[sid] || sid.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function scanStudiesFromJSON(obj, sourceFile, results, depth = 0) {
@@ -830,10 +859,23 @@ function extractInstrument(graphObj, fig) {
   return '';
 }
 
-ipcMain.handle('scan-indicators', async () => {
+ipcMain.handle('list-workspaces', async () => {
   try {
-    const wsName = getActiveWorkspace();
+    const dirs = fs.readdirSync(MW_WORKSPACES).filter(d => {
+      try { return fs.statSync(path.join(MW_WORKSPACES, d)).isDirectory(); }
+      catch { return false; }
+    });
+    return { ok: true, workspaces: dirs, active: dirs[0] || '' };
+  } catch (e) { return { ok: false, workspaces: [], error: e.message }; }
+});
+
+let selectedWorkspace = '';
+
+ipcMain.handle('scan-indicators', async (event, wsOverride) => {
+  try {
+    const wsName = wsOverride || selectedWorkspace || getActiveWorkspace();
     if (wsName === 'default') return { ok: false, error: 'No MotiveWave workspace found. Open MotiveWave first.' };
+    selectedWorkspace = wsName;
 
     const wsConfig = path.join(MW_WORKSPACES, wsName, 'config');
     const studies = [];
@@ -861,12 +903,47 @@ ipcMain.handle('scan-indicators', async () => {
             for (const def of defaults) {
               const data = def.data || def;
               if (!data || typeof data !== 'object') continue;
-              const sid = data.sid || def.id || '';
-              const settings = data.settings || {};
-              const colors = extractColors(typeof settings === 'object' ? settings : {});
+              const sid = data.sid || data.cid || def.id || '';
+              const settings = (data.settings && typeof data.settings === 'object') ? data.settings : {};
+              const colors = extractColors(settings);
+
+              // Also extract ratio colors for drawing tools (fibs, etc)
+              const ratios = data.ratios;
+              if (Array.isArray(ratios)) {
+                for (const r of ratios) {
+                  if (r.c1) {
+                    const parsed = parseMWColor(r.c1);
+                    if (parsed) colors.push({
+                      key: `ratio_${r.value || r.name || ratios.indexOf(r)}_c1`,
+                      label: `${r.value || r.name || 'Level'} Line`,
+                      hex: parsed.hex, alpha: parsed.alpha, enabled: r.enabled !== false, original: r.c1
+                    });
+                  }
+                  if (r.fillColor) {
+                    const parsed = parseMWColor(r.fillColor);
+                    if (parsed) colors.push({
+                      key: `ratio_${r.value || r.name || ratios.indexOf(r)}_fill`,
+                      label: `${r.value || r.name || 'Level'} Fill`,
+                      hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: r.fillColor
+                    });
+                  }
+                }
+              }
+
+              // Extract path/line colors from settings
+              if (settings.c1) {
+                const parsed = parseMWColor(settings.c1);
+                if (parsed) colors.push({ key: 'line_c1', label: 'Line Color', hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: settings.c1 });
+              }
+              if (settings.fillColor) {
+                const parsed = parseMWColor(settings.fillColor);
+                if (parsed) colors.push({ key: 'fillColor', label: 'Fill Color', hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: settings.fillColor });
+              }
+
               const displayName = getSidDisplayName(sid) || STYPE_NAMES[settings.type] || sid || 'Default';
+              const isDrawing = !!data.cid || !!DRAWING_NAMES[sid] || !!DRAWING_NAMES[def.id];
               studies.push({
-                source: 'defaults.json', type: settings.type || 'default',
+                source: 'defaults.json', type: isDrawing ? 'drawing' : (settings.type || 'default'),
                 sid, ns: '', id: `default_${sid}_${studies.length}`,
                 name: sid, displayName: `${displayName} (default)`, colors
               });
@@ -960,10 +1037,8 @@ ipcMain.handle('scan-indicators', async () => {
 });
 
 ipcMain.handle('save-indicator-colors', async (event, { studyId, changes }) => {
-  // changes = [{key, hex, alpha}]
-  // We need to find the study in the original files and update it
   try {
-    const wsName = getActiveWorkspace();
+    const wsName = selectedWorkspace || getActiveWorkspace();
     const wsConfig = path.join(MW_WORKSPACES, wsName, 'config');
 
     // Re-scan to find the study
