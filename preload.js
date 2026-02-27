@@ -42,6 +42,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWorkspace: (ws) => ipcRenderer.invoke('set-workspace', ws),
   scanIndicators: (ws) => ipcRenderer.invoke('scan-indicators', ws || ''),
   saveIndicatorColors: (studyId, changes) => ipcRenderer.invoke('save-indicator-colors', { studyId, changes }),
+  // Workspace backup/restore
+  backupWorkspace: () => ipcRenderer.invoke('backup-workspace'),
+  restoreWorkspaceBackup: () => ipcRenderer.invoke('restore-workspace-backup'),
+  // Indicator color export/import
+  exportIndicatorColors: (studies) => ipcRenderer.invoke('export-indicator-colors', studies),
+  importIndicatorColors: () => ipcRenderer.invoke('import-indicator-colors'),
   // Issue reporter
   reportIssue: (title, body) => ipcRenderer.invoke('report-issue', { title, body }),
 });

@@ -345,7 +345,16 @@
         <button class="btn btn-sm" onclick="saveIndicatorChanges()" id="indSaveBtn" style="display:none">Save Changes</button>
       </div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:8px" id="indStatus"></div>
-      <div class="search-wrap"><input class="search-box" id="indSearch" type="text" placeholder="Search indicators..." oninput="filterIndicators()"></div>
+      <div class="search-wrap"><input class="search-box" id="indSearch" type="text" placeholder="Search indicators or hex (#ff0000)..." oninput="filterIndicators()"></div>
+      <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="batchDarken()">Darken 15%</button>
+        <button class="btn btn-sm" onclick="batchLighten()">Lighten 15%</button>
+        <button class="btn btn-sm" onclick="batchDesaturate()">Desaturate</button>
+        <button class="btn btn-sm" onclick="backupWorkspace()">Backup</button>
+        <button class="btn btn-sm" onclick="restoreWorkspaceBackup()">Restore</button>
+        <button class="btn btn-sm" onclick="exportIndicatorColors()">Export</button>
+        <button class="btn btn-sm" onclick="importIndicatorColors()">Import</button>
+      </div>
       <div id="indContainer"></div>
       <div id="indEmpty" style="text-align:center;padding:30px;color:var(--text3);font-size:11px">
         Click "Scan Workspace" to detect all indicators and their colors from your MotiveWave setup.
@@ -1373,12 +1382,170 @@ async function saveIndicatorChanges() {
 }
 
 function filterIndicators() {
-  const q = document.getElementById('indSearch').value.toLowerCase();
+  const q = document.getElementById('indSearch').value.toLowerCase().trim();
+  const isHexSearch = q.startsWith('#') && q.length >= 4;
+
   document.querySelectorAll('.ind-study').forEach(el => {
     const name = el.querySelector('.sname')?.textContent.toLowerCase() || '';
     const type = el.querySelector('.stype')?.textContent.toLowerCase() || '';
-    el.style.display = (!q || name.includes(q) || type.includes(q)) ? '' : 'none';
+
+    if (!q) { el.style.display = ''; return; }
+
+    if (isHexSearch) {
+      // Search by hex color value
+      const hexInputs = el.querySelectorAll('input.chex');
+      let match = false;
+      hexInputs.forEach(inp => {
+        if (inp.value.toLowerCase().includes(q)) {
+          match = true;
+          inp.parentElement.style.background = 'rgba(99,102,241,0.1)';
+        } else {
+          inp.parentElement.style.background = '';
+        }
+      });
+      el.style.display = match ? '' : 'none';
+      if (match) { el.querySelector('.ind-study-colors')?.classList.add('open'); el.querySelector('.arrow')?.classList.add('open'); }
+    } else {
+      el.style.display = (name.includes(q) || type.includes(q)) ? '' : 'none';
+      // Clear highlights
+      el.querySelectorAll('.crow').forEach(r => r.style.background = '');
+    }
   });
+}
+
+// ==================== BATCH COLOR OPS ====================
+
+function hexToHSL(hex) {
+  let r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), l = (max+min)/2;
+  let h = 0, s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+    if (max===r) h = ((g-b)/d + (g<b?6:0))/6;
+    else if (max===g) h = ((b-r)/d + 2)/6;
+    else h = ((r-g)/d + 4)/6;
+  }
+  return [h*360, s*100, l*100];
+}
+
+function hslToHex(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  let r, g, b;
+  if (s === 0) { r = g = b = l; }
+  else {
+    const hue2rgb = (p,q,t) => { if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; };
+    const q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+    r = hue2rgb(p,q,h+1/3); g = hue2rgb(p,q,h); b = hue2rgb(p,q,h-1/3);
+  }
+  return '#' + [r,g,b].map(x => Math.round(Math.min(255,Math.max(0,x*255))).toString(16).padStart(2,'0')).join('');
+}
+
+function batchTransform(fn) {
+  if (indStudies.length === 0) return;
+  for (const study of indStudies) {
+    for (const c of study.colors) {
+      const newHex = fn(c.hex);
+      if (newHex !== c.hex) {
+        trackIndChange(study.id, c.key, newHex);
+        // Update UI
+        const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
+        const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
+        if (picker) picker.value = newHex;
+        if (hexInput) hexInput.value = newHex;
+      }
+    }
+  }
+}
+
+function batchDarken() {
+  batchTransform(hex => {
+    const [h,s,l] = hexToHSL(hex);
+    return hslToHex(h, s, Math.max(0, l * 0.85));
+  });
+}
+
+function batchLighten() {
+  batchTransform(hex => {
+    const [h,s,l] = hexToHSL(hex);
+    return hslToHex(h, s, Math.min(100, l * 1.15 + 2));
+  });
+}
+
+function batchDesaturate() {
+  batchTransform(hex => {
+    const [h,s,l] = hexToHSL(hex);
+    return hslToHex(h, s * 0.5, l);
+  });
+}
+
+// ==================== WORKSPACE BACKUP/RESTORE ====================
+
+async function backupWorkspace() {
+  const status = document.getElementById('indStatus');
+  const result = await window.electronAPI.backupWorkspace();
+  if (result.ok) {
+    status.textContent = `Backed up "${result.workspace}" (${result.files} files)`;
+  } else {
+    status.textContent = result.error || 'Backup failed';
+  }
+}
+
+async function restoreWorkspaceBackup() {
+  const status = document.getElementById('indStatus');
+  const result = await window.electronAPI.restoreWorkspaceBackup();
+  if (result.ok) {
+    status.textContent = `Restored "${result.workspace}" from ${result.backup} (${result.files} files). Restart MW.`;
+    // Rescan
+    const sel = document.getElementById('wsSelectGlobal');
+    if (sel?.value) scanIndicators(sel.value);
+  } else if (result.error) {
+    status.textContent = result.error;
+  }
+}
+
+// ==================== EXPORT/IMPORT INDICATOR COLORS ====================
+
+async function exportIndicatorColors() {
+  if (indStudies.length === 0) { document.getElementById('indStatus').textContent = 'Scan first'; return; }
+  // Export current study colors
+  const exportData = indStudies.filter(s => s.colors.length > 0).map(s => ({
+    sid: s.sid, name: s.displayName, type: s.type, source: s.source,
+    colors: s.colors.map(c => ({ key: c.key, label: c.label, hex: c.hex, alpha: c.alpha }))
+  }));
+  const result = await window.electronAPI.exportIndicatorColors(exportData);
+  if (result.ok) document.getElementById('indStatus').textContent = 'Exported to ' + result.path.split('/').pop();
+}
+
+async function importIndicatorColors() {
+  const result = await window.electronAPI.importIndicatorColors();
+  if (!result.ok || !result.data) return;
+  const data = result.data;
+  const imported = data.studies || [];
+  let applied = 0;
+
+  for (const imp of imported) {
+    // Find matching study by sid
+    const match = indStudies.find(s => s.sid === imp.sid);
+    if (!match) continue;
+    for (const ic of imp.colors) {
+      const mc = match.colors.find(c => c.key === ic.key);
+      if (!mc) continue;
+      trackIndChange(match.id, ic.key, ic.hex);
+      // Update alpha
+      if (ic.alpha !== undefined) indAlpha(match.id, ic.key, ic.alpha);
+      // Update UI
+      const picker = document.querySelector(`input[type=color][data-ind="${match.id}"][data-key="${ic.key}"]`);
+      const hexInput = document.querySelector(`input.chex[data-ind="${match.id}"][data-key="${ic.key}"]`);
+      const alphaInput = document.querySelector(`input.alpha-input[data-ind="${match.id}"][data-key="${ic.key}"]`);
+      if (picker) picker.value = ic.hex;
+      if (hexInput) hexInput.value = ic.hex;
+      if (alphaInput && ic.alpha !== undefined) alphaInput.value = ic.alpha;
+      applied++;
+    }
+  }
+
+  document.getElementById('indStatus').textContent = `Imported ${applied} colors from "${data.workspace || 'unknown'}"`;
 }
 
 </script>

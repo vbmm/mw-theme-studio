@@ -1145,6 +1145,112 @@ ipcMain.handle('save-indicator-colors', async (event, { studyId, changes }) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
+// ==================== WORKSPACE BACKUP/RESTORE ====================
+
+ipcMain.handle('backup-workspace', async () => {
+  try {
+    const wsName = selectedWorkspace || getActiveWorkspace();
+    const wsConfig = path.join(MW_WORKSPACES, wsName, 'config');
+    const backupDir = path.join(PRESETS_DIR, 'backups');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupPath = path.join(backupDir, `${wsName}_${timestamp}`);
+
+    fs.mkdirSync(backupPath, { recursive: true });
+
+    // Copy all JSON config files
+    const files = fs.readdirSync(wsConfig).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      fs.copyFileSync(path.join(wsConfig, file), path.join(backupPath, file));
+    }
+
+    return { ok: true, path: backupPath, workspace: wsName, files: files.length };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('restore-workspace-backup', async () => {
+  try {
+    const backupDir = path.join(PRESETS_DIR, 'backups');
+    if (!fs.existsSync(backupDir)) return { ok: false, error: 'No backups found.' };
+
+    const backups = fs.readdirSync(backupDir).filter(d => {
+      try { return fs.statSync(path.join(backupDir, d)).isDirectory(); }
+      catch { return false; }
+    }).sort().reverse();
+
+    if (backups.length === 0) return { ok: false, error: 'No backups found.' };
+
+    // Show picker dialog with backup list
+    const win = BrowserWindow.getFocusedWindow();
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'question',
+      title: 'Restore Backup',
+      message: `Restore workspace from backup?`,
+      detail: `Latest: ${backups[0]}\n${backups.length} backup(s) available.\n\nThis will overwrite the current workspace config.`,
+      buttons: ['Restore Latest', 'Choose...', 'Cancel'],
+      defaultId: 2
+    });
+
+    let chosenBackup;
+    if (response === 0) {
+      chosenBackup = backups[0];
+    } else if (response === 1) {
+      const result = await dialog.showOpenDialog(win, {
+        defaultPath: backupDir,
+        properties: ['openDirectory'],
+        title: 'Choose backup folder'
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false };
+      chosenBackup = path.basename(result.filePaths[0]);
+    } else {
+      return { ok: false };
+    }
+
+    const backupPath = path.join(backupDir, chosenBackup);
+    const wsName = selectedWorkspace || getActiveWorkspace();
+    const wsConfig = path.join(MW_WORKSPACES, wsName, 'config');
+
+    const files = fs.readdirSync(backupPath).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+      fs.copyFileSync(path.join(backupPath, file), path.join(wsConfig, file));
+    }
+
+    return { ok: true, workspace: wsName, files: files.length, backup: chosenBackup };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// ==================== EXPORT/IMPORT INDICATOR COLORS ====================
+
+ipcMain.handle('export-indicator-colors', async (event, studies) => {
+  try {
+    const result = await dialog.showSaveDialog({
+      defaultPath: `mw-indicator-colors.mwcolors`,
+      filters: [{ name: 'MW Colors', extensions: ['mwcolors', 'json'] }]
+    });
+    if (result.canceled || !result.filePath) return { ok: false };
+
+    const bundle = {
+      version: CURRENT_VERSION,
+      workspace: selectedWorkspace || getActiveWorkspace(),
+      exportDate: new Date().toISOString(),
+      studies: studies
+    };
+    fs.writeFileSync(result.filePath, JSON.stringify(bundle, null, 2));
+    return { ok: true, path: result.filePath };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('import-indicator-colors', async () => {
+  try {
+    const result = await dialog.showOpenDialog({
+      filters: [{ name: 'MW Colors', extensions: ['mwcolors', 'json'] }],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths[0]) return { ok: false };
+    const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
+    return { ok: true, data };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // ==================== ISSUE REPORTER ====================
 
 ipcMain.handle('report-issue', async (event, { title, body }) => {
