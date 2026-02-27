@@ -708,6 +708,43 @@ function extractColors(settings) {
       }
     }
   }
+  // Extract font colors (Bid Trades, etc use fonts[] with color + bg)
+  if (Array.isArray(settings.fonts)) {
+    for (const f of settings.fonts) {
+      if (f.color) {
+        const parsed = parseMWColor(f.color);
+        if (parsed) {
+          colors.push({
+            key: `font_${f.name}_fg`, label: `${(f.name || 'Font').replace(/([A-Z])/g, ' $1').replace(/\d+/, ' $&').trim()} Text`,
+            hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: f.color
+          });
+        }
+      }
+      if (f.bg) {
+        const parsed = parseMWColor(f.bg);
+        if (parsed) {
+          colors.push({
+            key: `font_${f.name}_bg`, label: `${(f.name || 'Font').replace(/([A-Z])/g, ' $1').replace(/\d+/, ' $&').trim()} Background`,
+            hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: f.bg
+          });
+        }
+      }
+    }
+  }
+  // Extract indicator label colors
+  if (Array.isArray(settings.indicators)) {
+    for (const ind of settings.indicators) {
+      if (ind.labelColor) {
+        const parsed = parseMWColor(ind.labelColor);
+        if (parsed) {
+          colors.push({
+            key: `ind_${ind.name}_label`, label: `${(ind.name || 'Indicator').replace(/([A-Z])/g, ' $1').trim()} Label`,
+            hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: ind.labelColor
+          });
+        }
+      }
+    }
+  }
   return colors;
 }
 

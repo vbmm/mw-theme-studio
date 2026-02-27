@@ -1,6 +1,6 @@
 {
   "name": "mw-theme-studio",
-  "version": "4.4.1",
+  "version": "4.4.2",
   "description": "MotiveWave Theme Studio — customize colors & fonts",
   "main": "main.js",
   "scripts": {
