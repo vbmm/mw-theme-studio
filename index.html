@@ -246,6 +246,7 @@
     <div class="divider"></div>
     <button class="btn btn-ghost" onclick="checkUpdate()" id="updateBtn" title="Check for updates" style="display:none">Update</button>
     <button class="btn btn-ghost" onclick="showHelp()" title="Help">?</button>
+    <button class="btn btn-ghost" onclick="showReportIssue()" title="Report a bug">Bug</button>
     <span style="font-size:9px;color:var(--text3)" id="versionLabel"></span>
   </div>
 </div>
@@ -970,6 +971,45 @@ function switchHelp(page){
   document.getElementById('helpBody').innerHTML=HELP_PAGES[page].content;
   document.querySelectorAll('.help-nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   document.getElementById('helpBody').scrollTop=0;
+}
+
+// ==================== REPORT ISSUE ====================
+function showReportIssue(){
+  const ov=document.createElement('div');ov.className='modal-overlay';
+  ov.innerHTML=`<div class="update-modal">
+    <h2>Report an Issue</h2>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:12px">This opens a GitHub issue with your system info pre-filled.</p>
+    <div style="margin-bottom:10px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">Title</label>
+      <input type="text" id="issueTitle" placeholder="Brief description of the issue..." style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px">
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px">Description</label>
+      <textarea id="issueBody" rows="5" placeholder="What happened? What did you expect?&#10;&#10;Steps to reproduce:&#10;1. ..." style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;resize:vertical"></textarea>
+    </div>
+    <div style="font-size:9px;color:var(--text3);margin-bottom:12px">System info (version, macOS, MW status) will be included automatically.</div>
+    <div class="uactions">
+      <button class="btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitIssue()">Open on GitHub</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+  document.getElementById('issueTitle').focus();
+}
+
+async function submitIssue(){
+  const title=document.getElementById('issueTitle')?.value?.trim();
+  const body=document.getElementById('issueBody')?.value?.trim();
+  if(!title){toast('Add a title','err');return;}
+  if(window.electronAPI?.reportIssue){
+    await window.electronAPI.reportIssue(title,body);
+    document.querySelector('.modal-overlay')?.remove();
+    toast('Opening GitHub...','ok');
+  } else {
+    window.open('https://github.com/vbmm/mw-theme-studio/issues/new','_blank');
+    document.querySelector('.modal-overlay')?.remove();
+  }
 }
 
 // ==================== AUTO-UPDATE ====================

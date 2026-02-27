@@ -703,6 +703,27 @@ rm -f /tmp/mw-theme-studio-updater.sh
   }
 });
 
+// ==================== ISSUE REPORTER ====================
+
+ipcMain.handle('report-issue', async (event, { title, body }) => {
+  const os = require('os');
+  const sysInfo = [
+    `**App Version:** ${CURRENT_VERSION}`,
+    `**macOS:** ${os.release()} (${os.arch()})`,
+    `**MotiveWave:** ${fs.existsSync(MW_STYLES) ? 'Installed' : 'Not found'}`,
+    `**Workspace:** ${getActiveWorkspace()}`,
+    ''
+  ].join('\n');
+  const fullBody = body ? `${sysInfo}\n---\n\n${body}` : sysInfo;
+  const url = `https://github.com/${GITHUB_REPO}/issues/new?` + 
+    `title=${encodeURIComponent(title || 'Bug report')}` +
+    `&body=${encodeURIComponent(fullBody)}` +
+    `&labels=bug`;
+  const { shell } = require('electron');
+  shell.openExternal(url);
+  return { ok: true };
+});
+
 // Check for updates on launch (silent, non-blocking)
 app.whenReady().then(() => {
   setTimeout(async () => {

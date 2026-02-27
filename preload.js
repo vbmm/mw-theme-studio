@@ -37,4 +37,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, data) => cb(data)),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_, msg) => cb(msg)),
+  // Issue reporter
+  reportIssue: (title, body) => ipcRenderer.invoke('report-issue', { title, body }),
 });
