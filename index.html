@@ -119,6 +119,23 @@
   .css-editor{width:100%;height:calc(100vh - 160px);background:var(--surface);color:#e2e8f0;border:1px solid var(--border);border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:10px;resize:none;line-height:1.6;tab-size:2}
   .css-editor:focus{border-color:var(--accent);outline:none}
   .css-editor::placeholder{color:var(--text3)}
+  .ind-study{margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .ind-study-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);cursor:pointer;user-select:none}
+  .ind-study-header:hover{background:rgba(255,255,255,.03)}
+  .ind-study-header .arrow{font-size:9px;color:var(--text3);transition:transform .15s;width:12px}
+  .ind-study-header .arrow.open{transform:rotate(90deg)}
+  .ind-study-header .sname{font-size:11px;font-weight:600;color:var(--text1);flex:1}
+  .ind-study-header .stype{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em}
+  .ind-study-header .scount{font-size:9px;color:var(--accent2);min-width:20px;text-align:right}
+  .ind-study-colors{display:none;padding:6px 12px 10px;background:rgba(0,0,0,.15)}
+  .ind-study-colors.open{display:block}
+  .ind-study-colors .crow{display:flex;align-items:center;gap:6px;padding:3px 0}
+  .ind-study-colors .crow label{flex:1;font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ind-study-colors .crow input[type=color]{width:24px;height:24px;border:none;border-radius:4px;cursor:pointer;padding:0;background:transparent}
+  .ind-study-colors .crow .chex{width:70px;font-size:10px;padding:3px 6px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text1);font-family:inherit}
+  .ind-study-colors .crow .alpha-input{width:40px;font-size:10px;padding:3px 4px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text1);text-align:center}
+  .ind-changed{border-color:var(--accent) !important}
+  .ind-badge{display:inline-block;background:var(--accent);color:#fff;font-size:8px;font-weight:700;border-radius:8px;padding:1px 5px;margin-left:4px}
 
   /* Preview */
   .preview-wrap{display:flex;flex-direction:column;overflow:hidden}
@@ -258,6 +275,7 @@
       <button class="tab-btn adv-tab" data-tab="vars" onclick="switchTab('vars')" style="display:none">Vars <span class="badge" id="varBadge"></span></button>
       <button class="tab-btn adv-tab" data-tab="sels" onclick="switchTab('sels')" style="display:none">Selectors <span class="badge" id="selBadge"></span></button>
       <button class="tab-btn adv-tab" data-tab="css" onclick="switchTab('css')" style="display:none">CSS</button>
+      <button class="tab-btn" data-tab="indicators" onclick="switchTab('indicators')">Indicators</button>
       <button class="tab-btn" style="font-size:12px;flex:0;padding:9px 12px" onclick="toggleAdvanced()" id="advToggle" title="Show advanced tabs (Variables, Selectors, Raw CSS)">⚙</button>
     </div>
 
@@ -318,6 +336,19 @@
     <div class="tab-content" id="tab-css">
       <div style="font-size:11px;color:var(--text2);margin-bottom:8px">JavaFX CSS overrides → appended to dark.css</div>
       <textarea class="css-editor" id="customCSS" placeholder="/* Override any style */&#10;.scroll-bar .thumb {&#10;  -fx-background-color: rgb(80,80,80);&#10;}" spellcheck="false"></textarea>
+    </div>
+
+    <div class="tab-content" id="tab-indicators">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <button class="btn btn-sm" onclick="scanIndicators()" id="indScanBtn">Scan Workspace</button>
+        <button class="btn btn-sm" onclick="saveIndicatorChanges()" id="indSaveBtn" style="display:none">Save Changes</button>
+        <span style="font-size:10px;color:var(--text3)" id="indStatus"></span>
+      </div>
+      <div class="search-wrap"><input class="search-box" id="indSearch" type="text" placeholder="Search indicators..." oninput="filterIndicators()"></div>
+      <div id="indContainer"></div>
+      <div id="indEmpty" style="text-align:center;padding:30px;color:var(--text3);font-size:11px">
+        Click "Scan Workspace" to detect all indicators and their colors from your MotiveWave setup.
+      </div>
     </div>
   </div>
 
@@ -1076,6 +1107,217 @@ if(window.electronAPI?.onUpdateProgress){
 
 initVersion();
 init();
+
+// ==================== INDICATOR SCANNER ====================
+
+let indStudies = [];
+let indChanges = {}; // {studyId: {colorKey: {hex, alpha}}}
+
+async function scanIndicators() {
+  const btn = document.getElementById('indScanBtn');
+  const status = document.getElementById('indStatus');
+  const container = document.getElementById('indContainer');
+  const empty = document.getElementById('indEmpty');
+  btn.textContent = 'Scanning...';
+  btn.disabled = true;
+  status.textContent = '';
+
+  try {
+    const result = await window.electronAPI.scanIndicators();
+    if (!result.ok) {
+      status.textContent = result.error || 'Scan failed';
+      empty.textContent = result.error || 'No indicators found.';
+      btn.textContent = 'Scan Workspace';
+      btn.disabled = false;
+      return;
+    }
+
+    indStudies = result.studies || [];
+    indChanges = {};
+
+    if (indStudies.length === 0) {
+      empty.style.display = 'block';
+      empty.textContent = `Workspace "${result.workspace}" has no indicator colors yet. Add indicators to your charts in MotiveWave first.`;
+      container.innerHTML = '';
+      btn.textContent = 'Scan Workspace';
+      btn.disabled = false;
+      return;
+    }
+
+    empty.style.display = 'none';
+    status.textContent = `${indStudies.length} studies / ${indStudies.reduce((s, st) => s + st.colors.length, 0)} colors from "${result.workspace}"`;
+
+    renderIndicators(indStudies);
+    btn.textContent = 'Rescan';
+    btn.disabled = false;
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+    btn.textContent = 'Scan Workspace';
+    btn.disabled = false;
+  }
+}
+
+function renderIndicators(studies) {
+  const container = document.getElementById('indContainer');
+  container.innerHTML = '';
+
+  // Group by type
+  const groups = {};
+  for (const s of studies) {
+    const groupName = getStudyGroupName(s.type);
+    if (!groups[groupName]) groups[groupName] = [];
+    groups[groupName].push(s);
+  }
+
+  for (const [group, groupStudies] of Object.entries(groups)) {
+    const groupEl = document.createElement('div');
+    groupEl.style.cssText = 'margin-bottom:12px';
+    groupEl.innerHTML = `<div style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding:4px 0;margin-bottom:4px;border-bottom:1px solid var(--border)">${group} (${groupStudies.length})</div>`;
+
+    for (const study of groupStudies) {
+      const el = document.createElement('div');
+      el.className = 'ind-study';
+      el.id = 'ind-' + study.id;
+
+      const header = document.createElement('div');
+      header.className = 'ind-study-header';
+      header.innerHTML = `<span class="arrow">▶</span><span class="sname">${escHtml(study.displayName)}</span><span class="stype">${escHtml(study.source.replace('.json', ''))}</span><span class="scount">${study.colors.length}</span>`;
+      header.onclick = () => toggleStudy(study.id);
+
+      const colors = document.createElement('div');
+      colors.className = 'ind-study-colors';
+      colors.id = 'ind-colors-' + study.id;
+
+      for (const c of study.colors) {
+        const row = document.createElement('div');
+        row.className = 'crow';
+        row.innerHTML = `<label title="${escHtml(c.key)}">${escHtml(c.label)}</label>` +
+          `<input type="text" class="chex" value="${c.hex}" maxlength="7" oninput="indColorHex('${study.id}','${c.key}',this.value)" data-ind="${study.id}" data-key="${c.key}">` +
+          `<input type="color" value="${c.hex}" oninput="indColorPick('${study.id}','${c.key}',this.value)" data-ind="${study.id}" data-key="${c.key}">` +
+          `<input type="number" class="alpha-input" value="${c.alpha}" min="0" max="255" title="Alpha (0-255)" oninput="indAlpha('${study.id}','${c.key}',this.value)" data-ind="${study.id}" data-key="${c.key}">`;
+        if (!c.enabled) row.style.opacity = '0.4';
+        colors.appendChild(row);
+      }
+
+      el.appendChild(header);
+      el.appendChild(colors);
+      groupEl.appendChild(el);
+    }
+    container.appendChild(groupEl);
+  }
+}
+
+function getStudyGroupName(type) {
+  const map = {
+    'profile': 'Volume Profile',
+    'bidAsk': 'Footprint',
+    'study': 'Studies & Indicators',
+    'chartTheme': 'Chart Themes',
+    'barTheme': 'Bar Themes',
+  };
+  return map[type] || 'Other';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toggleStudy(id) {
+  const colors = document.getElementById('ind-colors-' + id);
+  const study = document.getElementById('ind-' + id);
+  const arrow = study.querySelector('.arrow');
+  if (colors.classList.contains('open')) {
+    colors.classList.remove('open');
+    arrow.classList.remove('open');
+  } else {
+    colors.classList.add('open');
+    arrow.classList.add('open');
+  }
+}
+
+function indColorPick(studyId, key, hex) {
+  trackIndChange(studyId, key, hex);
+  // Sync hex input
+  const hexInput = document.querySelector(`input.chex[data-ind="${studyId}"][data-key="${key}"]`);
+  if (hexInput) hexInput.value = hex;
+}
+
+function indColorHex(studyId, key, hex) {
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    trackIndChange(studyId, key, hex);
+    const picker = document.querySelector(`input[type=color][data-ind="${studyId}"][data-key="${key}"]`);
+    if (picker) picker.value = hex;
+  }
+}
+
+function indAlpha(studyId, key, val) {
+  const alpha = Math.min(255, Math.max(0, parseInt(val) || 0));
+  if (!indChanges[studyId]) indChanges[studyId] = {};
+  if (!indChanges[studyId][key]) indChanges[studyId][key] = {};
+  indChanges[studyId][key].alpha = alpha;
+  updateIndSaveBtn();
+}
+
+function trackIndChange(studyId, key, hex) {
+  if (!indChanges[studyId]) indChanges[studyId] = {};
+  if (!indChanges[studyId][key]) indChanges[studyId][key] = {};
+  indChanges[studyId][key].hex = hex;
+  // Get current alpha from input
+  const alphaInput = document.querySelector(`input.alpha-input[data-ind="${studyId}"][data-key="${key}"]`);
+  if (alphaInput) indChanges[studyId][key].alpha = parseInt(alphaInput.value) || 255;
+  updateIndSaveBtn();
+  // Highlight changed study
+  document.getElementById('ind-' + studyId)?.classList.add('ind-changed');
+}
+
+function updateIndSaveBtn() {
+  const total = Object.values(indChanges).reduce((s, ch) => s + Object.keys(ch).length, 0);
+  const btn = document.getElementById('indSaveBtn');
+  btn.style.display = total > 0 ? '' : 'none';
+  btn.textContent = `Save ${total} Change${total !== 1 ? 's' : ''}`;
+}
+
+async function saveIndicatorChanges() {
+  const btn = document.getElementById('indSaveBtn');
+  const status = document.getElementById('indStatus');
+  btn.textContent = 'Saving...';
+  btn.disabled = true;
+
+  let totalApplied = 0;
+  try {
+    // Flatten all changes into one batch per study
+    for (const [studyId, changes] of Object.entries(indChanges)) {
+      const changeList = Object.entries(changes).map(([key, val]) => ({
+        key,
+        hex: val.hex || '#000000',
+        alpha: val.alpha !== undefined ? val.alpha : 255
+      }));
+      if (changeList.length === 0) continue;
+      const result = await window.electronAPI.saveIndicatorColors(studyId, changeList);
+      if (result.ok) totalApplied += result.applied || 0;
+    }
+
+    status.textContent = `Saved ${totalApplied} color${totalApplied !== 1 ? 's' : ''}. Restart MotiveWave to see changes.`;
+    indChanges = {};
+    updateIndSaveBtn();
+    document.querySelectorAll('.ind-changed').forEach(el => el.classList.remove('ind-changed'));
+    btn.disabled = false;
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+    btn.textContent = 'Save Changes';
+    btn.disabled = false;
+  }
+}
+
+function filterIndicators() {
+  const q = document.getElementById('indSearch').value.toLowerCase();
+  document.querySelectorAll('.ind-study').forEach(el => {
+    const name = el.querySelector('.sname')?.textContent.toLowerCase() || '';
+    const type = el.querySelector('.stype')?.textContent.toLowerCase() || '';
+    el.style.display = (!q || name.includes(q) || type.includes(q)) ? '' : 'none';
+  });
+}
+
 </script>
 </body>
 </html>

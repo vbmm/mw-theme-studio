@@ -547,6 +547,322 @@ rm -rf "${extractDir}"
   }
 });
 
+// ==================== IPC: INDICATOR SCANNER ====================
+
+// Parse MW color formats into {hex, alpha}
+function parseMWColor(val) {
+  if (!val) return null;
+  if (typeof val !== 'string') return null;
+  // Format: "R,G,B" or "R,G,B,A"
+  if (val.includes(',')) {
+    const parts = val.split(',').map(s => parseInt(s.trim()));
+    if (parts.length >= 3) {
+      const hex = '#' + parts.slice(0, 3).map(n => Math.min(255, Math.max(0, n || 0)).toString(16).padStart(2, '0')).join('');
+      return { hex, alpha: parts[3] !== undefined ? parts[3] : 255 };
+    }
+  }
+  // Format: "RRGGBB" or "RRGGBBAA" (no #)
+  const clean = val.replace(/^#/, '');
+  if (/^[0-9A-Fa-f]{6,8}$/.test(clean)) {
+    const hex = '#' + clean.slice(0, 6).toLowerCase();
+    const alpha = clean.length === 8 ? parseInt(clean.slice(6, 8), 16) : 255;
+    return { hex, alpha };
+  }
+  // Format: "N,RRGGBB" (prefix + hex)
+  const prefixMatch = val.match(/^[A-Z],([0-9A-Fa-f]{6})$/);
+  if (prefixMatch) return { hex: '#' + prefixMatch[1].toLowerCase(), alpha: 255 };
+  return null;
+}
+
+// Convert hex+alpha back to MW format based on original format
+function toMWColor(hex, alpha, originalFormat) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  if (!originalFormat) return `${r},${g},${b},${alpha}`;
+  if (originalFormat.includes(',') && !originalFormat.match(/^[A-Z],/)) {
+    // RGB string format
+    const parts = originalFormat.split(',');
+    return parts.length >= 4 ? `${r},${g},${b},${alpha}` : `${r},${g},${b}`;
+  }
+  if (originalFormat.match(/^[A-Z],/)) {
+    // Prefix format
+    return originalFormat[0] + ',' + hex.slice(1).toUpperCase();
+  }
+  // Hex format
+  const h = hex.slice(1).toUpperCase();
+  return originalFormat.length === 8 ? h + (alpha || 255).toString(16).toUpperCase().padStart(2, '0') : h;
+}
+
+// Study type display names
+const STUDY_NAMES = {
+  'profile': 'Volume Profile',
+  'bidAsk': 'Bid/Ask Footprint',
+  'study': 'Study/Indicator',
+  'heatmap': 'Order Heatmap',
+  'depthOfMarket': 'DOM',
+  'timeSales': 'Time & Sales',
+  'vpoc': 'VPOC',
+  'delta': 'Delta',
+  'cumDelta': 'Cumulative Delta',
+  'tpo': 'TPO Profile',
+  'imbalance': 'Imbalance',
+};
+
+function scanStudiesFromJSON(obj, sourceFile, results, depth = 0) {
+  if (depth > 30 || !obj || typeof obj !== 'object') return;
+  if (Array.isArray(obj)) {
+    for (const item of obj) scanStudiesFromJSON(item, sourceFile, results, depth + 1);
+    return;
+  }
+
+  const settings = obj.settings;
+  if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
+    const study = { source: sourceFile, type: '', name: '', colors: [] };
+    study.type = settings.type || obj.factory || obj.type || '';
+    study.name = settings.name || settings.tabName || settings.id || '';
+
+    // Extract colors from settings.colors array (common format)
+    if (Array.isArray(settings.colors)) {
+      for (const c of settings.colors) {
+        if (c.name && c.color) {
+          const parsed = parseMWColor(c.color);
+          if (parsed) {
+            study.colors.push({
+              key: c.name,
+              label: c.name.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
+              hex: parsed.hex,
+              alpha: parsed.alpha,
+              enabled: c.enabled !== false,
+              original: c.color,
+              arrayIndex: settings.colors.indexOf(c)
+            });
+          }
+        }
+      }
+    }
+
+    // Extract inline color properties (vpFontColor, bidColor, etc)
+    for (const [k, v] of Object.entries(settings)) {
+      if (typeof v === 'string' && (k.toLowerCase().includes('color') || k.toLowerCase().includes('fill'))
+          && k !== 'adjLadderColor' && k !== 'colorMap') {
+        const parsed = parseMWColor(v);
+        if (parsed) {
+          study.colors.push({
+            key: k,
+            label: k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(),
+            hex: parsed.hex,
+            alpha: parsed.alpha,
+            enabled: true,
+            original: v,
+            inlineKey: k
+          });
+        }
+      }
+    }
+
+    // Extract colorMap (heatmaps)
+    if (settings.colorMap && settings.colorMap.colors) {
+      settings.colorMap.colors.forEach((c, i) => {
+        const parsed = parseMWColor(c);
+        if (parsed) {
+          study.colors.push({
+            key: `colorMap_${i}`,
+            label: `Heatmap Color ${i + 1}`,
+            hex: parsed.hex,
+            alpha: parsed.alpha,
+            enabled: true,
+            original: c,
+            mapIndex: i
+          });
+        }
+      });
+    }
+
+    if (study.colors.length > 0) {
+      // Generate unique ID
+      study.id = `${study.type}_${study.name}_${results.length}`;
+      study.displayName = study.name || STUDY_NAMES[study.type] || study.type || 'Unknown Study';
+      results.push(study);
+    }
+  }
+
+  for (const v of Object.values(obj)) {
+    if (v && typeof v === 'object') scanStudiesFromJSON(v, sourceFile, results, depth + 1);
+  }
+}
+
+ipcMain.handle('scan-indicators', async () => {
+  try {
+    const wsName = getActiveWorkspace();
+    if (wsName === 'default') return { ok: false, error: 'No MotiveWave workspace found. Open MotiveWave first.' };
+
+    const wsConfig = path.join(MW_WORKSPACES, wsName, 'config');
+    const studies = [];
+    const files = ['windows.json', 'defaults.json', 'config.json'];
+
+    for (const file of files) {
+      const fp = path.join(wsConfig, file);
+      if (!fs.existsSync(fp)) continue;
+      const raw = fs.readFileSync(fp, 'utf8').trim();
+      if (!raw || raw === '{}' || raw === '[]') continue;
+      try {
+        const data = JSON.parse(raw);
+        scanStudiesFromJSON(data, file, studies);
+      } catch {}
+    }
+
+    // Also check settings.json for chart/bar themes with extra detail
+    if (fs.existsSync(MW_SETTINGS)) {
+      try {
+        const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
+        if (settings.chartThemes) {
+          for (const ct of settings.chartThemes) {
+            const study = { source: 'settings.json', type: 'chartTheme', id: `chartTheme_${ct.name || 'default'}`, name: ct.name || '', displayName: `Chart Theme: ${ct.name || 'Default'}`, colors: [] };
+            for (const [k, v] of Object.entries(ct)) {
+              if (typeof v === 'string' && k !== 'name') {
+                const parsed = parseMWColor(v);
+                if (parsed) study.colors.push({ key: k, label: k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(), hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: v, inlineKey: k });
+              }
+            }
+            if (study.colors.length) studies.push(study);
+          }
+        }
+        if (settings.barThemes) {
+          for (const bt of settings.barThemes) {
+            const study = { source: 'settings.json', type: 'barTheme', id: `barTheme_${bt.name || 'default'}`, name: bt.name || '', displayName: `Bar Theme: ${bt.name || 'Default'}`, colors: [] };
+            for (const [k, v] of Object.entries(bt)) {
+              if (typeof v === 'string' && k !== 'name') {
+                const parsed = parseMWColor(v);
+                if (parsed) study.colors.push({ key: k, label: k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim(), hex: parsed.hex, alpha: parsed.alpha, enabled: true, original: v, inlineKey: k });
+              }
+            }
+            if (study.colors.length) studies.push(study);
+          }
+        }
+      } catch {}
+    }
+
+    // Deduplicate by type+name, merge colors
+    const deduped = {};
+    for (const s of studies) {
+      const key = `${s.type}__${s.name || s.displayName}`;
+      if (!deduped[key]) {
+        deduped[key] = s;
+      } else {
+        // Merge any new colors not already present
+        const existing = new Set(deduped[key].colors.map(c => c.key));
+        for (const c of s.colors) {
+          if (!existing.has(c.key)) {
+            deduped[key].colors.push(c);
+            existing.add(c.key);
+          }
+        }
+      }
+    }
+
+    return { ok: true, workspace: wsName, studies: Object.values(deduped) };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('save-indicator-colors', async (event, { studyId, changes }) => {
+  // changes = [{key, hex, alpha}]
+  // We need to find the study in the original files and update it
+  try {
+    const wsName = getActiveWorkspace();
+    const wsConfig = path.join(MW_WORKSPACES, wsName, 'config');
+
+    // Re-scan to find the study
+    const studies = [];
+    const fileData = {};
+    const files = ['windows.json', 'defaults.json', 'config.json'];
+
+    for (const file of files) {
+      const fp = path.join(wsConfig, file);
+      if (!fs.existsSync(fp)) continue;
+      const raw = fs.readFileSync(fp, 'utf8').trim();
+      if (!raw || raw === '{}' || raw === '[]') continue;
+      try { fileData[file] = JSON.parse(raw); } catch { continue; }
+    }
+
+    // Also handle settings.json
+    if (fs.existsSync(MW_SETTINGS)) {
+      try { fileData['settings.json'] = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8')); } catch {}
+    }
+
+    // Apply changes by walking the JSON and finding matching color entries
+    let applied = 0;
+    const changeMap = {};
+    for (const c of changes) changeMap[c.key] = c;
+
+    function applyChanges(obj, depth = 0) {
+      if (depth > 30 || !obj || typeof obj !== 'object') return;
+      if (Array.isArray(obj)) {
+        for (const item of obj) applyChanges(item, depth + 1);
+        return;
+      }
+      const settings = obj.settings;
+      if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
+        // Update colors array
+        if (Array.isArray(settings.colors)) {
+          for (const c of settings.colors) {
+            if (c.name && changeMap[c.name]) {
+              const ch = changeMap[c.name];
+              c.color = toMWColor(ch.hex, ch.alpha, c.color);
+              applied++;
+            }
+          }
+        }
+        // Update inline color props
+        for (const [k, v] of Object.entries(settings)) {
+          if (changeMap[k] && typeof v === 'string') {
+            const ch = changeMap[k];
+            settings[k] = toMWColor(ch.hex, ch.alpha, v);
+            applied++;
+          }
+        }
+        // Update colorMap
+        if (settings.colorMap && settings.colorMap.colors) {
+          for (let i = 0; i < settings.colorMap.colors.length; i++) {
+            const mapKey = `colorMap_${i}`;
+            if (changeMap[mapKey]) {
+              const ch = changeMap[mapKey];
+              settings.colorMap.colors[i] = toMWColor(ch.hex, ch.alpha, settings.colorMap.colors[i]);
+              applied++;
+            }
+          }
+        }
+      }
+      // Handle chart/bar themes in settings.json
+      if (obj.chartThemes || obj.barThemes) {
+        for (const themes of [obj.chartThemes, obj.barThemes]) {
+          if (!Array.isArray(themes)) continue;
+          for (const theme of themes) {
+            for (const [k, v] of Object.entries(theme)) {
+              if (changeMap[k] && typeof v === 'string' && k !== 'name') {
+                const ch = changeMap[k];
+                theme[k] = toMWColor(ch.hex, ch.alpha, v);
+                applied++;
+              }
+            }
+          }
+        }
+      }
+      for (const v of Object.values(obj)) {
+        if (v && typeof v === 'object') applyChanges(v, depth + 1);
+      }
+    }
+
+    for (const [file, data] of Object.entries(fileData)) {
+      applyChanges(data);
+      const fp = file === 'settings.json' ? MW_SETTINGS : path.join(wsConfig, file);
+      fs.writeFileSync(fp, JSON.stringify(data));
+    }
+
+    return { ok: true, applied };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // ==================== ISSUE REPORTER ====================
 
 ipcMain.handle('report-issue', async (event, { title, body }) => {
