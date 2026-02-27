@@ -342,10 +342,7 @@
 
     <div class="tab-content" id="tab-indicators">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-        <select id="wsSelect" style="flex:1;font-size:10px;padding:4px 8px;background:var(--surface);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-family:inherit" onchange="scanIndicators(this.value)">
-          <option value="">Select workspace...</option>
-        </select>
-        <button class="btn btn-sm" onclick="scanIndicators(document.getElementById('wsSelect').value)" id="indScanBtn">Scan</button>
+        <button class="btn btn-sm" onclick="scanIndicators(document.getElementById('wsSelectGlobal').value)" id="indScanBtn">Scan</button>
         <button class="btn btn-sm" onclick="saveIndicatorChanges()" id="indSaveBtn" style="display:none">Save Changes</button>
       </div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:8px" id="indStatus"></div>
@@ -1126,26 +1123,74 @@ async function loadWorkspaces() {
     const result = await window.electronAPI.listWorkspaces();
     if (result.ok && result.workspaces.length) {
       const active = result.active || result.workspaces[0];
-      // Populate both selectors
-      for (const selId of ['wsSelect', 'wsSelectGlobal']) {
-        const sel = document.getElementById(selId);
-        if (!sel) continue;
-        sel.innerHTML = '';
-        for (const ws of result.workspaces) {
-          const opt = document.createElement('option');
-          opt.value = ws; opt.textContent = ws;
-          sel.appendChild(opt);
-        }
-        sel.value = active;
-        sel.onchange = () => {
-          // Sync both selectors
-          document.querySelectorAll('#wsSelect,#wsSelectGlobal').forEach(s => s.value = sel.value);
-          scanIndicators(sel.value);
-        };
+      const sel = document.getElementById('wsSelectGlobal');
+      if (!sel) return;
+      sel.innerHTML = '';
+      for (const ws of result.workspaces) {
+        const opt = document.createElement('option');
+        opt.value = ws; opt.textContent = ws;
+        sel.appendChild(opt);
       }
+      sel.value = active;
+      sel.onchange = () => {
+        // Reload everything for the new workspace
+        onWorkspaceSwitch(sel.value);
+      };
       wsLoaded = true;
     }
   } catch {}
+}
+
+// When workspace changes, reload theme + trading colors + indicators
+async function onWorkspaceSwitch(wsName) {
+  // Set workspace in backend first
+  await window.electronAPI.setWorkspace(wsName);
+
+  // Reload trading colors (DOM, table, buttons)
+  if (window.electronAPI?.readTradingColors) {
+    try {
+      const tc = await window.electronAPI.readTradingColors();
+      if (tc.ok) {
+        // Update table color pickers
+        const tableFields = ['upText','downText','upBg','downBg','upArrow','downArrow'];
+        for (const f of tableFields) {
+          const el = document.getElementById('t-' + f);
+          if (el && tc.table[f]) el.value = '#' + tc.table[f].replace(/^#/,'').slice(0,6);
+        }
+        // Update DOM color pickers
+        const domFields = ['bidColor','askColor','atBidText','atAskText','bgColor'];
+        for (const f of domFields) {
+          const el = document.getElementById('d-' + f);
+          if (el && tc.dom[f]) el.value = '#' + tc.dom[f].replace(/^#/,'').slice(0,6);
+        }
+      }
+    } catch {}
+  }
+
+  // Reload chart/bar colors
+  if (window.electronAPI?.readChartColors) {
+    try {
+      const cc = await window.electronAPI.readChartColors();
+      if (cc.ok) {
+        if (cc.chart) {
+          for (const [k,v] of Object.entries(cc.chart)) {
+            const el = document.getElementById('ch-' + k);
+            if (el) el.value = v;
+          }
+        }
+        if (cc.bars) {
+          for (const [k,v] of Object.entries(cc.bars)) {
+            const el = document.getElementById('bar-' + k);
+            if (el) el.value = v;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Rescan indicators
+  indAutoScanned = true;
+  scanIndicators(wsName);
 }
 
 // Load workspaces immediately + auto-scan on first Indicators tab visit
@@ -1156,7 +1201,7 @@ switchTab = function(t) {
   _origSwitchTab(t);
   if (t === 'indicators' && !indAutoScanned && wsLoaded) {
     indAutoScanned = true;
-    const sel = document.getElementById('wsSelect');
+    const sel = document.getElementById('wsSelectGlobal');
     if (sel?.value) scanIndicators(sel.value);
   }
 };

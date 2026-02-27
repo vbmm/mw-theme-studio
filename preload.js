@@ -37,8 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, data) => cb(data)),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_, msg) => cb(msg)),
-  // Indicator scanner
+  // Workspace + Indicator scanner
   listWorkspaces: () => ipcRenderer.invoke('list-workspaces'),
+  setWorkspace: (ws) => ipcRenderer.invoke('set-workspace', ws),
   scanIndicators: (ws) => ipcRenderer.invoke('scan-indicators', ws || ''),
   saveIndicatorColors: (studyId, changes) => ipcRenderer.invoke('save-indicator-colors', { studyId, changes }),
   // Issue reporter

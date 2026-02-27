@@ -13,6 +13,7 @@ const PRESETS_DIR = path.join(process.env.HOME, '.mw-theme-studio');
 const PRESETS_FILE = path.join(PRESETS_DIR, 'presets.json');
 const GITHUB_REPO = 'vbmm/mw-theme-studio';
 const CURRENT_VERSION = app.getVersion();
+let selectedWorkspace = '';
 
 // ==================== HELPERS ====================
 
@@ -27,11 +28,13 @@ function getActiveWorkspace() {
 }
 
 function getWorkspaceConfigPath() {
-  return path.join(MW_WORKSPACES, getActiveWorkspace(), 'config', 'config.json');
+  const ws = selectedWorkspace || getActiveWorkspace();
+  return path.join(MW_WORKSPACES, ws, 'config', 'config.json');
 }
 
 function getWorkspaceDefaultsPath() {
-  return path.join(MW_WORKSPACES, getActiveWorkspace(), 'config', 'defaults.json');
+  const ws = selectedWorkspace || getActiveWorkspace();
+  return path.join(MW_WORKSPACES, ws, 'config', 'defaults.json');
 }
 
 function rgbStrToHex(str) {
@@ -869,7 +872,10 @@ ipcMain.handle('list-workspaces', async () => {
   } catch (e) { return { ok: false, workspaces: [], error: e.message }; }
 });
 
-let selectedWorkspace = '';
+ipcMain.handle('set-workspace', async (event, ws) => {
+  if (ws) selectedWorkspace = ws;
+  return { ok: true, workspace: selectedWorkspace };
+});
 
 ipcMain.handle('scan-indicators', async (event, wsOverride) => {
   try {
