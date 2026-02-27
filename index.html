@@ -342,6 +342,10 @@
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
         <select id="wsSelectGlobal" style="flex:1;font-size:10px;padding:4px 8px;background:var(--surface);color:var(--text1);border:1px solid var(--border);border-radius:4px;font-family:inherit"></select>
         <button class="btn btn-sm" onclick="scanIndicators(document.getElementById('wsSelectGlobal').value)" id="indScanBtn">Scan</button>
+        <button class="btn btn-sm" onclick="undoInd()" title="Undo indicator change">↩</button>
+        <button class="btn btn-sm" onclick="redoInd()" title="Redo indicator change">↪</button>
+        <button class="btn btn-sm" onclick="pickEyedropper()" title="Pick color from screen">⊙</button>
+        <button class="btn btn-sm" onclick="showDiffView()" id="indDiffBtn" style="display:none">Review</button>
         <button class="btn btn-sm" onclick="saveIndicatorChanges()" id="indSaveBtn" style="display:none">Save Changes</button>
       </div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:8px" id="indStatus"></div>
@@ -1150,6 +1154,75 @@ init();
 let indStudies = [];
 let indChanges = {}; // {studyId: {colorKey: {hex, alpha}}}
 
+// ==================== INDICATOR UNDO/REDO ====================
+let indUndoStack = [];
+let indRedoStack = [];
+let indOriginalColors = {}; // snapshot of original colors from scan
+
+function captureIndState() {
+  // Capture current state of all color pickers
+  const state = {};
+  for (const study of indStudies) {
+    state[study.id] = {};
+    for (const c of study.colors) {
+      const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
+      const alphaInput = document.querySelector(`input.alpha-input[data-ind="${study.id}"][data-key="${c.key}"]`);
+      state[study.id][c.key] = {
+        hex: picker ? picker.value : c.hex,
+        alpha: alphaInput ? parseInt(alphaInput.value) || 255 : c.alpha
+      };
+    }
+  }
+  return state;
+}
+
+function pushIndUndo() {
+  indUndoStack.push(captureIndState());
+  indRedoStack = [];
+  if (indUndoStack.length > 50) indUndoStack.shift();
+}
+
+function restoreIndState(state) {
+  for (const study of indStudies) {
+    const sc = state[study.id];
+    if (!sc) continue;
+    for (const c of study.colors) {
+      const saved = sc[c.key];
+      if (!saved) continue;
+      const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
+      const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
+      const alphaInput = document.querySelector(`input.alpha-input[data-ind="${study.id}"][data-key="${c.key}"]`);
+      if (picker) picker.value = saved.hex;
+      if (hexInput) hexInput.value = saved.hex;
+      if (alphaInput) alphaInput.value = saved.alpha;
+      // Track as change vs original
+      const orig = indOriginalColors[study.id]?.[c.key];
+      if (orig && (orig.hex !== saved.hex || orig.alpha !== saved.alpha)) {
+        if (!indChanges[study.id]) indChanges[study.id] = {};
+        indChanges[study.id][c.key] = { hex: saved.hex, alpha: saved.alpha };
+      } else if (indChanges[study.id]) {
+        delete indChanges[study.id][c.key];
+        if (Object.keys(indChanges[study.id]).length === 0) delete indChanges[study.id];
+      }
+    }
+  }
+  updateIndSaveBtn();
+}
+
+function undoInd() {
+  if (indUndoStack.length === 0) return;
+  indRedoStack.push(captureIndState());
+  restoreIndState(indUndoStack.pop());
+  document.getElementById('indStatus').textContent = 'Undo';
+}
+
+function redoInd() {
+  if (indRedoStack.length === 0) return;
+  indUndoStack.push(captureIndState());
+  restoreIndState(indRedoStack.pop());
+  document.getElementById('indStatus').textContent = 'Redo';
+}
+
 // Load workspaces on startup
 let wsLoaded = false;
 async function loadWorkspaces() {
@@ -1224,6 +1297,14 @@ async function scanIndicators(wsName) {
 
     indStudies = result.studies || [];
     indChanges = {};
+    indUndoStack = [];
+    indRedoStack = [];
+    // Capture originals for undo comparison
+    indOriginalColors = {};
+    for (const s of indStudies) {
+      indOriginalColors[s.id] = {};
+      for (const c of s.colors) indOriginalColors[s.id][c.key] = { hex: c.hex, alpha: c.alpha };
+    }
 
     if (indStudies.length === 0) {
       empty.style.display = 'block';
@@ -1357,7 +1438,8 @@ function indAlpha(studyId, key, val) {
   updateIndSaveBtn();
 }
 
-function trackIndChange(studyId, key, hex) {
+function trackIndChange(studyId, key, hex, skipUndo) {
+  if (!skipUndo) pushIndUndo();
   if (!indChanges[studyId]) indChanges[studyId] = {};
   if (!indChanges[studyId][key]) indChanges[studyId][key] = {};
   indChanges[studyId][key].hex = hex;
@@ -1372,8 +1454,10 @@ function trackIndChange(studyId, key, hex) {
 function updateIndSaveBtn() {
   const total = Object.values(indChanges).reduce((s, ch) => s + Object.keys(ch).length, 0);
   const btn = document.getElementById('indSaveBtn');
+  const diffBtn = document.getElementById('indDiffBtn');
   btn.style.display = total > 0 ? '' : 'none';
   btn.textContent = `Save ${total} Change${total !== 1 ? 's' : ''}`;
+  if (diffBtn) diffBtn.style.display = total > 0 ? '' : 'none';
 }
 
 async function saveIndicatorChanges() {
@@ -1470,11 +1554,12 @@ function hslToHex(h, s, l) {
 
 function batchTransform(fn) {
   if (indStudies.length === 0) return;
+  pushIndUndo();
   for (const study of indStudies) {
     for (const c of study.colors) {
       const newHex = fn(c.hex);
       if (newHex !== c.hex) {
-        trackIndChange(study.id, c.key, newHex);
+        trackIndChange(study.id, c.key, newHex, true);
         // Update UI
         const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
         const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
@@ -1548,9 +1633,9 @@ async function exportIndicatorColors() {
 
 function swapBidAsk() {
   if (indStudies.length === 0) return;
+  pushIndUndo();
   const bidKeys = ['bidColor','bidFill','bidText','atBidText','atBidFill','mboBidFill','buyColor','buyFill'];
   const askKeys = ['askColor','askFill','askText','atAskText','atAskFill','mboAskFill','sellColor','sellFill'];
-  // Also swap by label keywords
   let swapped = 0;
 
   for (const study of indStudies) {
@@ -1575,8 +1660,8 @@ function swapBidAsk() {
 
         if (isBidAsk) {
           const tmpHex = a.hex;
-          trackIndChange(study.id, a.key, b.hex);
-          trackIndChange(study.id, b.key, tmpHex);
+          trackIndChange(study.id, a.key, b.hex, true);
+          trackIndChange(study.id, b.key, tmpHex, true);
           // Update UI
           const pa = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${a.key}"]`);
           const pb = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${b.key}"]`);
@@ -1605,12 +1690,13 @@ function execFindReplace() {
   const findHex = document.getElementById('frFind').value.toLowerCase();
   const replaceHex = document.getElementById('frReplace').value.toLowerCase();
   if (findHex === replaceHex) return;
+  pushIndUndo();
   let count = 0;
 
   for (const study of indStudies) {
     for (const c of study.colors) {
       if (c.hex.toLowerCase() === findHex) {
-        trackIndChange(study.id, c.key, replaceHex);
+        trackIndChange(study.id, c.key, replaceHex, true);
         const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
         const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
         if (picker) picker.value = replaceHex;
@@ -1687,8 +1773,8 @@ function applyIndPreset(presetId) {
   if (indStudies.length === 0) { document.getElementById('indStatus').textContent = 'Scan first'; return; }
   const preset = IND_PRESETS[presetId];
   if (!preset) return;
+  pushIndUndo();
 
-  // Build a flat color array from palette
   const allColors = [...preset.palette.primary, ...preset.palette.secondary, ...preset.palette.accent, ...preset.palette.neutral];
   let applied = 0;
 
@@ -1700,21 +1786,19 @@ function applyIndPreset(presetId) {
       const label = c.label.toLowerCase();
       let newHex;
 
-      // Smart assignment based on label semantics
       if (label.includes('bid') || label.includes('buy') || label.includes('up')) {
         newHex = preset.palette.signal.bid || preset.palette.signal.up;
       } else if (label.includes('ask') || label.includes('sell') || label.includes('down')) {
         newHex = preset.palette.signal.ask || preset.palette.signal.down;
       } else if (label.includes('background') || label.includes('fill') || label.includes('bg')) {
-        newHex = allColors[(i * 3) % allColors.length] + '44'; // semi-transparent
-        newHex = newHex.slice(0, 7); // keep hex only, alpha handled separately
+        newHex = allColors[(i * 3) % allColors.length] + '44';
+        newHex = newHex.slice(0, 7);
       } else {
-        // Distribute evenly from palette
         newHex = allColors[i % allColors.length];
       }
 
       if (newHex) {
-        trackIndChange(study.id, c.key, newHex);
+        trackIndChange(study.id, c.key, newHex, true);
         const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${c.key}"]`);
         const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${c.key}"]`);
         if (picker) picker.value = newHex;
@@ -1801,16 +1885,16 @@ function showHarmony(studyId) {
 function applyHarmony(studyId, mode) {
   const study = indStudies.find(s => s.id === studyId);
   if (!study) return;
+  pushIndUndo();
 
   const baseInput = document.getElementById('harmony-base-' + studyId);
   const baseHex = baseInput ? baseInput.value : study.colors[0].hex;
   const count = study.colors.length;
   const colors = generateHarmony(baseHex, mode, count);
 
-  // Apply to study colors
   for (let i = 0; i < study.colors.length; i++) {
     const newHex = colors[i % colors.length];
-    trackIndChange(study.id, study.colors[i].key, newHex);
+    trackIndChange(study.id, study.colors[i].key, newHex, true);
     const picker = document.querySelector(`input[type=color][data-ind="${study.id}"][data-key="${study.colors[i].key}"]`);
     const hexInput = document.querySelector(`input.chex[data-ind="${study.id}"][data-key="${study.colors[i].key}"]`);
     if (picker) picker.value = newHex;
@@ -1824,6 +1908,86 @@ function applyHarmony(studyId, mode) {
   }
 
   document.getElementById('indStatus').textContent = `Applied ${mode} harmony to ${study.displayName}`;
+}
+
+// ==================== EYEDROPPER ====================
+
+let eyedropperTarget = null; // {studyId, key} — if set, apply picked color to this target
+
+async function pickEyedropper() {
+  if (!window.EyeDropper) {
+    document.getElementById('indStatus').textContent = 'Eyedropper not supported in this Electron version';
+    return;
+  }
+  try {
+    document.getElementById('indStatus').textContent = 'Click anywhere on screen to pick a color...';
+    const dropper = new EyeDropper();
+    const result = await dropper.open();
+    const hex = result.sRGBHex; // e.g. "#ff0000"
+    document.getElementById('indStatus').textContent = `Picked: ${hex} — use Find & Replace to apply it`;
+    // Auto-populate find/replace
+    document.getElementById('frReplace').value = hex;
+    document.getElementById('frReplaceHex').value = hex;
+    document.getElementById('findReplacePanel').style.display = '';
+  } catch {
+    document.getElementById('indStatus').textContent = 'Eyedropper cancelled';
+  }
+}
+
+// ==================== DIFF VIEW ====================
+
+function showDiffView() {
+  const total = Object.values(indChanges).reduce((s, ch) => s + Object.keys(ch).length, 0);
+  if (total === 0) return;
+
+  // Remove existing
+  document.getElementById('indDiffModal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'indDiffModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  let html = `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;color:var(--text1)">Review Changes (${total})</div>
+      <button class="btn btn-sm" onclick="this.closest('#indDiffModal').remove()">Close</button>
+    </div>`;
+
+  for (const [studyId, changes] of Object.entries(indChanges)) {
+    const study = indStudies.find(s => s.id === studyId);
+    if (!study) continue;
+    const studyChanges = Object.entries(changes);
+    if (studyChanges.length === 0) continue;
+
+    html += `<div style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px">${escHtml(study.displayName)} (${studyChanges.length})</div>`;
+
+    for (const [key, val] of studyChanges) {
+      const orig = indOriginalColors[studyId]?.[key];
+      const origHex = orig?.hex || '#000000';
+      const newHex = val.hex || origHex;
+      const colorLabel = study.colors.find(c => c.key === key)?.label || key;
+
+      html += `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:10px">
+        <span style="flex:1;color:var(--text2)">${escHtml(colorLabel)}</span>
+        <div style="width:18px;height:18px;border-radius:3px;background:${origHex};border:1px solid var(--border)" title="${origHex}"></div>
+        <span style="color:var(--text3);font-family:monospace;font-size:9px">${origHex}</span>
+        <span style="color:var(--text3)">→</span>
+        <div style="width:18px;height:18px;border-radius:3px;background:${newHex};border:1px solid var(--border)" title="${newHex}"></div>
+        <span style="color:var(--text1);font-family:monospace;font-size:9px">${newHex}</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  html += `<div style="display:flex;gap:6px;margin-top:12px;justify-content:flex-end">
+    <button class="btn btn-sm" onclick="this.closest('#indDiffModal').remove()">Cancel</button>
+    <button class="btn btn-sm" onclick="this.closest('#indDiffModal').remove();saveIndicatorChanges()" style="background:var(--accent);color:#fff">Save All</button>
+  </div></div>`;
+
+  modal.innerHTML = html;
+  document.body.appendChild(modal);
 }
 
 async function importIndicatorColors() {
