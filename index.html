@@ -1143,54 +1143,16 @@ async function loadWorkspaces() {
 
 // When workspace changes, reload theme + trading colors + indicators
 async function onWorkspaceSwitch(wsName) {
-  // Set workspace in backend first
+  // Set workspace in backend first — all subsequent reads use this
   await window.electronAPI.setWorkspace(wsName);
 
-  // Reload trading colors (DOM, table, buttons)
-  if (window.electronAPI?.readTradingColors) {
-    try {
-      const tc = await window.electronAPI.readTradingColors();
-      if (tc.ok) {
-        // Update table color pickers
-        const tableFields = ['upText','downText','upBg','downBg','upArrow','downArrow'];
-        for (const f of tableFields) {
-          const el = document.getElementById('t-' + f);
-          if (el && tc.table[f]) el.value = '#' + tc.table[f].replace(/^#/,'').slice(0,6);
-        }
-        // Update DOM color pickers
-        const domFields = ['bidColor','askColor','atBidText','atAskText','bgColor'];
-        for (const f of domFields) {
-          const el = document.getElementById('d-' + f);
-          if (el && tc.dom[f]) el.value = '#' + tc.dom[f].replace(/^#/,'').slice(0,6);
-        }
-      }
-    } catch {}
-  }
+  // Reload all workspace-specific data using existing loaders
+  await loadChartColors();
+  await loadTradingColors();
 
-  // Reload chart/bar colors
-  if (window.electronAPI?.readChartColors) {
-    try {
-      const cc = await window.electronAPI.readChartColors();
-      if (cc.ok) {
-        if (cc.chart) {
-          for (const [k,v] of Object.entries(cc.chart)) {
-            const el = document.getElementById('ch-' + k);
-            if (el) el.value = v;
-          }
-        }
-        if (cc.bars) {
-          for (const [k,v] of Object.entries(cc.bars)) {
-            const el = document.getElementById('bar-' + k);
-            if (el) el.value = v;
-          }
-        }
-      }
-    } catch {}
-  }
-
-  // Rescan indicators
+  // Rescan indicators for this workspace
   indAutoScanned = true;
-  scanIndicators(wsName);
+  await scanIndicators(wsName);
 }
 
 // Load workspaces immediately + auto-scan on first Indicators tab visit
