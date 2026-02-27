@@ -670,33 +670,43 @@ ipcMain.handle('install-update', async (event, downloadUrl) => {
     // Extract and replace using a background script that runs after app quits
     const appPath = app.getPath('exe').replace(/\/Contents\/MacOS\/.*$/, '');
     const updateScript = `#!/bin/bash
-# Wait for the app to quit
-sleep 1
+set -e
 # Extract
 cd "${extractDir}" && unzip -o "${zipPath}" > /dev/null 2>&1
 # Remove quarantine
-xattr -cr "${extractDir}/MW Theme Studio.app" 2>/dev/null
+xattr -cr "${extractDir}/MW Theme Studio.app" 2>/dev/null || true
 # Replace app
 rm -rf "${appPath}"
 mv "${extractDir}/MW Theme Studio.app" "${appPath}"
-# Relaunch
-open "${appPath}"
 # Cleanup
 rm -f "${zipPath}"
 rm -rf "${extractDir}"
 rm -f /tmp/mw-theme-studio-updater.sh
+echo "OK"
 `;
     fs.writeFileSync('/tmp/mw-theme-studio-updater.sh', updateScript, { mode: 0o755 });
 
-    // Launch the updater script detached, then quit the app
-    const { spawn } = require('child_process');
-    spawn('bash', ['/tmp/mw-theme-studio-updater.sh'], {
-      detached: true,
-      stdio: 'ignore'
-    }).unref();
+    win?.webContents.send('update-progress', 'Installing...');
 
-    // Quit after a short delay to let the script start
-    setTimeout(() => app.quit(), 500);
+    // Run updater with admin privileges (needs permission to write to /Applications)
+    const oscmd = `osascript -e 'do shell script "bash /tmp/mw-theme-studio-updater.sh" with administrator privileges'`;
+    exec(oscmd, (err) => {
+      if (err) {
+        // If admin auth was cancelled or failed, don't quit
+        win?.webContents.send('update-progress', '');
+        dialog.showMessageBox(win, {
+          type: 'error',
+          title: 'Update Failed',
+          message: err.message.includes('User canceled') ? 'Update cancelled.' : 'Could not install update.',
+          detail: err.message.includes('User canceled') ? '' : err.message
+        });
+        return;
+      }
+      // Script replaced the app — relaunch from the new version
+      const { spawn: sp } = require('child_process');
+      sp('open', [appPath], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => app.quit(), 300);
+    });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
