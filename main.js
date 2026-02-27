@@ -378,8 +378,9 @@ ipcMain.handle('save-trading-colors', async (event, { table, dom, buttons }) => 
     const cfgPath = getWorkspaceConfigPath();
     if (!fs.existsSync(cfgPath)) return { ok: false, error: 'Workspace config not found' };
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    if (table) { if (!cfg.table) cfg.table = {}; Object.assign(cfg.table, table); }
-    if (dom) { if (!cfg.dom) cfg.dom = {}; for (const [k, v] of Object.entries(dom)) cfg.dom[k] = v; }
+    console.log('[save-trading-colors] Path:', cfgPath);
+    if (table) { if (!cfg.table) cfg.table = {}; Object.assign(cfg.table, table); console.log('[save-trading-colors] Table:', JSON.stringify(table)); }
+    if (dom) { if (!cfg.dom) cfg.dom = {}; for (const [k, v] of Object.entries(dom)) cfg.dom[k] = v; console.log('[save-trading-colors] DOM:', JSON.stringify(dom)); }
     if (buttons) {
       const updateWidgetColors = (widgets, type, fgColor, bgColor) => {
         if (!Array.isArray(widgets)) return;
@@ -399,8 +400,75 @@ ipcMain.handle('save-trading-colors', async (event, { table, dom, buttons }) => 
       }
     }
     fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+    console.log('[save-trading-colors] Saved to config.json');
+
+    // Also update domSettings in windows.json for all open charts
+    if (dom) {
+      const ws = selectedWorkspace || getActiveWorkspace();
+      const winPath = path.join(MW_WORKSPACES, ws, 'config', 'windows.json');
+      if (fs.existsSync(winPath)) {
+        try {
+          const winData = JSON.parse(fs.readFileSync(winPath, 'utf8'));
+          let domCount = 0;
+          
+          // Recursively find and update all domSettings objects
+          function updateDomSettings(obj) {
+            if (!obj || typeof obj !== 'object') return;
+            if (Array.isArray(obj)) { for (const item of obj) updateDomSettings(item); return; }
+            if (obj.domSettings && typeof obj.domSettings === 'object') {
+              for (const [k, v] of Object.entries(dom)) {
+                if (obj.domSettings.hasOwnProperty(k) || ['bidColor','askColor','bgColor','atBidText','atAskText','priceText','mboBidFill','mboAskFill'].includes(k)) {
+                  obj.domSettings[k] = v;
+                }
+              }
+              domCount++;
+            }
+            for (const v of Object.values(obj)) {
+              if (v && typeof v === 'object') updateDomSettings(v);
+            }
+          }
+          
+          updateDomSettings(winData);
+          fs.writeFileSync(winPath, JSON.stringify(winData));
+          console.log(`[save-trading-colors] Updated ${domCount} domSettings in windows.json`);
+        } catch (e) { console.error('[save-trading-colors] windows.json update failed:', e.message); }
+      }
+    }
+
+    // Also update table colors in windows.json if they exist per-chart
+    if (table) {
+      const ws = selectedWorkspace || getActiveWorkspace();
+      const winPath = path.join(MW_WORKSPACES, ws, 'config', 'windows.json');
+      if (fs.existsSync(winPath)) {
+        try {
+          const winData = JSON.parse(fs.readFileSync(winPath, 'utf8'));
+          let tableCount = 0;
+          
+          function updateTableSettings(obj) {
+            if (!obj || typeof obj !== 'object') return;
+            if (Array.isArray(obj)) { for (const item of obj) updateTableSettings(item); return; }
+            if (obj.tableSettings && typeof obj.tableSettings === 'object') {
+              for (const [k, v] of Object.entries(table)) {
+                obj.tableSettings[k] = v;
+              }
+              tableCount++;
+            }
+            for (const v of Object.values(obj)) {
+              if (v && typeof v === 'object') updateTableSettings(v);
+            }
+          }
+          
+          updateTableSettings(winData);
+          if (tableCount > 0) {
+            fs.writeFileSync(winPath, JSON.stringify(winData));
+            console.log(`[save-trading-colors] Updated ${tableCount} tableSettings in windows.json`);
+          }
+        } catch (e) {}
+      }
+    }
+
     return { ok: true };
-  } catch (e) { return { ok: false, error: e.message }; }
+  } catch (e) { console.error('[save-trading-colors] Error:', e.message); return { ok: false, error: e.message }; }
 });
 
 // ==================== IPC: EXPORT/IMPORT ====================
