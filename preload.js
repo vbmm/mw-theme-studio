@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, data) => cb(data)),
   onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_, msg) => cb(msg)),
+  // Fonts
+  saveFonts: (opts) => ipcRenderer.invoke('save-fonts', opts),
   // Theme management
   listThemes: () => ipcRenderer.invoke('list-themes'),
   createTheme: (opts) => ipcRenderer.invoke('create-theme', opts),

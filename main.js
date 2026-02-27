@@ -184,14 +184,43 @@ ipcMain.handle('read-chart-colors', async () => {
   try {
     if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
     const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
-    const ct = settings.chartThemes?.[0] || {};
-    const bt = settings.barThemes?.[0] || {};
-    return {
-      ok: true,
-      chart: { background: rgbStrToHex(ct.background), axisLine: rgbStrToHex(ct.axisLine), gridLine: rgbStrToHex(ct.gridLine), crossHair: rgbStrToHex(ct.crossHair), textFg: rgbStrToHex(ct.textFg) },
-      bars: { up: rgbStrToHex(bt.up), upFill: rgbStrToHex(bt.upFill), upOutline: rgbStrToHex(bt.upOutline), down: rgbStrToHex(bt.down), downFill: rgbStrToHex(bt.downFill), downOutline: rgbStrToHex(bt.downOutline) },
-      _raw: { chartTheme: ct, barTheme: bt }
-    };
+    const activeChartName = settings.chartTheme || '';
+    const activeBarName = settings.barTheme || '';
+    const ct = settings.chartThemes?.find(t => t.name === activeChartName) || settings.chartThemes?.[0] || {};
+    const bt = settings.barThemes?.find(t => t.name === activeBarName) || settings.barThemes?.[0] || {};
+    
+    // Convert ALL chart theme fields
+    const chart = {};
+    for (const [k, v] of Object.entries(ct)) { if (k !== 'name' && typeof v === 'string') chart[k] = rgbStrToHex(v); }
+    const bars = {};
+    for (const [k, v] of Object.entries(bt)) { if (k !== 'name' && typeof v === 'string') bars[k] = rgbStrToHex(v); }
+    
+    return { ok: true, chart, bars, activeChartTheme: activeChartName, activeBarTheme: activeBarName };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Save global fonts to settings.json
+ipcMain.handle('save-fonts', async (event, { fontName }) => {
+  try {
+    if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
+    const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
+    const fontKeys = Object.keys(settings).filter(k => k.endsWith('Font') && typeof settings[k] === 'string');
+    for (const k of fontKeys) {
+      const parts = settings[k].split('|');
+      parts[0] = fontName;
+      settings[k] = parts.join('|');
+    }
+    // Also update DOM tableFont and ltqFont in workspace config
+    const cfgPath = getWorkspaceConfigPath();
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      if (cfg.dom?.tableFont) { const p = cfg.dom.tableFont.split('|'); p[0] = fontName; cfg.dom.tableFont = p.join('|'); }
+      if (cfg.dom?.ltqFont) { const p = cfg.dom.ltqFont.split('|'); p[0] = fontName; cfg.dom.ltqFont = p.join('|'); }
+      fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+    }
+    fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
+    console.log(`[save-fonts] Set all fonts to ${fontName} (${fontKeys.length} keys)`);
+    return { ok: true, count: fontKeys.length };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
@@ -205,18 +234,11 @@ ipcMain.handle('save-chart-colors', async (event, { chart, bars, themeName }) =>
     const ctIdx = settings.chartThemes?.findIndex(t => t.name === activeChartName);
     const ct = settings.chartThemes?.[ctIdx >= 0 ? ctIdx : 0];
     if (ct && chart) {
-      if (chart.background) ct.background = hexToRgbStr(chart.background);
-      if (chart.axisLine) ct.axisLine = hexToRgbStr(chart.axisLine);
-      if (chart.gridLine) ct.gridLine = hexToRgbStr(chart.gridLine);
-      if (chart.crossHair) ct.crossHair = hexToRgbStr(chart.crossHair);
-      if (chart.textFg) ct.textFg = hexToRgbStr(chart.textFg);
-      // Also save extra chart theme fields
-      if (chart.axisLine2) ct.axisLine2 = hexToRgbStr(chart.axisLine2);
-      if (chart.axisText) ct.axisText = hexToRgbStr(chart.axisText);
-      if (chart.textBg) ct.textBg = hexToRgbStr(chart.textBg);
-      if (chart.textBorder) ct.textBorder = hexToRgbStr(chart.textBorder);
-      if (chart.majorGridLine) ct.majorGridLine = hexToRgbStr(chart.majorGridLine);
-      if (chart.histogram) ct.histogram = hexToRgbStr(chart.histogram);
+      // Save ALL chart theme fields
+      const chartRgb = ['background','axisLine','axisLine2','axisText','gridLine','majorGridLine','crossHair','textBg','textFg','textBorder','zoomLine','shapeFill','histogram'];
+      const chartRgba = ['zoomFill']; // has alpha
+      for (const k of chartRgb) { if (chart[k]) ct[k] = hexToRgbStr(chart[k]); }
+      for (const k of chartRgba) { if (chart[k]) { const ga = (ct[k]||'').split(','); ct[k] = hexToRgbStr(chart[k], ga.length >= 4 ? parseInt(ga[3]) : 130); } }
     }
     
     // Find the active bar theme by name (or first one)
@@ -224,17 +246,12 @@ ipcMain.handle('save-chart-colors', async (event, { chart, bars, themeName }) =>
     const btIdx = settings.barThemes?.findIndex(t => t.name === activeBarName);
     const bt = settings.barThemes?.[btIdx >= 0 ? btIdx : 0];
     if (bt && bars) {
+      // Save ALL bar theme fields (preserve alpha from originals)
       const getAlpha = (orig) => { const p = (orig || '').split(','); return p.length >= 4 ? parseInt(p[3]) : undefined; };
-      bt.up = hexToRgbStr(bars.up); bt.upFill = hexToRgbStr(bars.upFill, getAlpha(bt.upFill) || 210); bt.upOutline = hexToRgbStr(bars.upOutline);
-      bt.down = hexToRgbStr(bars.down); bt.downFill = hexToRgbStr(bars.downFill, getAlpha(bt.downFill) || 210); bt.downOutline = hexToRgbStr(bars.downOutline);
-      // Save extended bar colors
-      if (bars.neutral) bt.neutral = hexToRgbStr(bars.neutral);
-      if (bars.neutralFill) bt.neutralFill = hexToRgbStr(bars.neutralFill, getAlpha(bt.neutralFill) || 210);
-      if (bars.inside) bt.inside = hexToRgbStr(bars.inside);
-      if (bars.outside) bt.outside = hexToRgbStr(bars.outside);
-      if (bars.topFill) bt.topFill = hexToRgbStr(bars.topFill);
-      if (bars.bottomFill) bt.bottomFill = hexToRgbStr(bars.bottomFill);
-      if (bars.priceLine) bt.priceLine = hexToRgbStr(bars.priceLine);
+      const barRgb = ['up','upOutline','down','downOutline','neutral','neutralOutline','inside','insideOutline','outside','outsideOutline','topFill','bottomFill','priceLine'];
+      const barRgba = ['upFill','downFill','neutralFill','insideFill','outsideFill']; // have alpha
+      for (const k of barRgb) { if (bars[k]) bt[k] = hexToRgbStr(bars[k]); }
+      for (const k of barRgba) { if (bars[k]) bt[k] = hexToRgbStr(bars[k], getAlpha(bt[k]) || 210); }
     }
     
     fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
