@@ -766,7 +766,7 @@ function renderPreview(override){
   for(const cd of extraCandles){cndl+=`<div class="candle" style="height:${cd.h}px;background:${cd.up?bc.b_upFill:bc.b_downFill};border:1px solid ${cd.up?bc.b_upOutline:bc.b_downOutline}"></div>`;}
   const domP=[21525,21500,21475,21450,21425,21400,21375,21350,21325,21300,21275,21250];let domR='';
   for(let i=0;i<domP.length;i++){const isA=i<6;const vol=[42,28,15,8,55,22,33,67,21,45,12,8][i];const bgA=isA?ta.d_askColor||'33':ta.d_bidColor||'33';const bgC=isA?tc.d_askColor:tc.d_bidColor;const w=Math.min(100,vol*1.2);
-    domR+=`<div class="mw-dom-row" data-edit="d_bgColor" style="background:${c.main};position:relative"><div style="position:absolute;${isA?'right':'left'}:0;top:0;bottom:0;width:${w}%;background:${bgC}${bgA}"></div><span style="color:${tc.d_priceText};position:relative;z-index:1">${domP[i]}</span><span style="color:${isA?tc.d_atAskText:tc.d_atBidText};position:relative;z-index:1;font-weight:600">${vol}</span></div>`;}
+    domR+=`<div class="mw-dom-row" data-edit="d_bgColor" style="background:${tc.d_bgColor};position:relative"><div style="position:absolute;${isA?'right':'left'}:0;top:0;bottom:0;width:${w}%;background:${bgC}${bgA}"></div><span style="color:${tc.d_priceText};position:relative;z-index:1">${domP[i]}</span><span style="color:${isA?tc.d_atAskText:tc.d_atBidText};position:relative;z-index:1;font-weight:600">${vol}</span></div>`;}
   const axY=['21550','21500','21450','21400','21350','21300','21250'].map(p=>`<span>${p}</span>`).join('');
   const axX=['10:00','10:15','10:30','10:45','11:00','11:15'].map(t=>`<span>${t}</span>`).join('');
 
@@ -836,11 +836,11 @@ function renderPreview(override){
       <div class="pp-item" data-edit="chooserBg" style="background:${c.chooserBg};border-radius:2px">RSI</div></div>
     <div class="prev-panel" data-edit="main" style="background:${c.main};font-family:${f};font-size:${fs}">
       <div class="pp-title">Watchlist</div>
-      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>NQ</span><span style="color:${tc.t_upText};background:${tc.t_upBg}22;padding:0 3px;border-radius:2px">21,432 ▲</span></div>
-      <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>ES</span><span style="color:${tc.t_downText};background:${tc.t_downBg}22;padding:0 3px;border-radius:2px">5,892 ▼</span></div>
-      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>GC</span><span style="color:${tc.t_upText}">2,045 ▲</span></div>
-      <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>CL</span><span style="color:${tc.t_downText};background:${tc.t_downBg}22;padding:0 3px;border-radius:2px">78.42 ▼</span></div>
-      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>YM</span><span style="color:${tc.t_upText}">43,891 ▲</span></div></div>`;
+      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>NQ</span><span style="color:${tc.t_upText};background:${tc.t_upBg}33;padding:1px 4px;border-radius:2px">21,432</span><span style="color:${tc.t_upArrow}">▲</span></div>
+      <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>ES</span><span style="color:${tc.t_downText};background:${tc.t_downBg}33;padding:1px 4px;border-radius:2px">5,892</span><span style="color:${tc.t_downArrow}">▼</span></div>
+      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>GC</span><span style="color:${tc.t_upText};background:${tc.t_upBg}33;padding:1px 4px;border-radius:2px">2,045</span><span style="color:${tc.t_upArrow}">▲</span></div>
+      <div class="prev-table-row" data-edit="t_down" style="background:${c.secondary}"><span>CL</span><span style="color:${tc.t_downText};background:${tc.t_downBg}33;padding:1px 4px;border-radius:2px">78.42</span><span style="color:${tc.t_downArrow}">▼</span></div>
+      <div class="prev-table-row" data-edit="t_up" style="background:${c.main}"><span>YM</span><span style="color:${tc.t_upText};background:${tc.t_upBg}33;padding:1px 4px;border-radius:2px">43,891</span><span style="color:${tc.t_upArrow}">▲</span></div></div>`;
 
   // Order ticket + Positions panel
   document.getElementById('panelsPrev').insertAdjacentHTML('afterend',`
@@ -860,9 +860,9 @@ function renderPreview(override){
     <div class="prev-positions" data-edit="main" style="background:${c.main};font-family:${f};color:${chc.ch_textFg}">
       <div class="pos-title" style="color:${ac}">Positions</div>
       <div class="pos-header"><span style="flex:1.5">Symbol</span><span>Side</span><span>Qty</span><span>Entry</span><span>Last</span><span>P&L</span></div>
-      <div class="pos-row"><span style="flex:1.5;font-weight:600">ENQH26</span><span style="color:${btc.btn_buyBg}">Long</span><span>2</span><span>21,380</span><span>21,432</span><span style="color:${tc.t_upText};font-weight:600">+$520</span></div>
-      <div class="pos-row"><span style="flex:1.5;font-weight:600">ESH26</span><span style="color:${btc.btn_sellBg}">Short</span><span>1</span><span>5,910</span><span>5,892</span><span style="color:${tc.t_upText};font-weight:600">+$900</span></div>
-      <div class="pos-row"><span style="flex:1.5;font-weight:600">GCJ26</span><span style="color:${btc.btn_buyBg}">Long</span><span>1</span><span>2,055</span><span>2,045</span><span style="color:${tc.t_downText};font-weight:600">-$1,000</span></div>
+      <div class="pos-row" style="background:${c.main}"><span style="flex:1.5;font-weight:600">ENQH26</span><span style="color:${btc.btn_buyBg}">Long</span><span>2</span><span>21,380</span><span style="color:${tc.t_upText}">21,432</span><span style="color:${tc.t_upText};font-weight:600;background:${tc.t_upBg}33;padding:0 3px;border-radius:2px">+$520</span></div>
+      <div class="pos-row" style="background:${c.secondary}"><span style="flex:1.5;font-weight:600">ESH26</span><span style="color:${btc.btn_sellBg}">Short</span><span>1</span><span>5,910</span><span style="color:${tc.t_upText}">5,892</span><span style="color:${tc.t_upText};font-weight:600;background:${tc.t_upBg}33;padding:0 3px;border-radius:2px">+$900</span></div>
+      <div class="pos-row" style="background:${c.main}"><span style="flex:1.5;font-weight:600">GCJ26</span><span style="color:${btc.btn_buyBg}">Long</span><span>1</span><span>2,055</span><span style="color:${tc.t_downText}">2,045</span><span style="color:${tc.t_downText};font-weight:600;background:${tc.t_downBg}33;padding:0 3px;border-radius:2px">-$1,000</span></div>
       <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:4px;border-top:1px solid rgba(255,255,255,.06);font-size:8px">
         <span style="opacity:.6">Total P&L</span><span style="color:${tc.t_upText};font-weight:700">+$420.00</span>
       </div>
