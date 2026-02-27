@@ -851,6 +851,64 @@ ipcMain.handle('scan-indicators', async () => {
       } catch {}
     }
 
+    // Scan defaults.json — array of {id, data: {settings, sid, ...}}
+    const defaultsPath = path.join(wsConfig, 'defaults.json');
+    if (fs.existsSync(defaultsPath)) {
+      try {
+        const raw = fs.readFileSync(defaultsPath, 'utf8').trim();
+        if (raw && raw !== '[]') {
+          const defaults = JSON.parse(raw);
+          if (Array.isArray(defaults)) {
+            for (const def of defaults) {
+              const data = def.data || def;
+              if (!data || typeof data !== 'object') continue;
+              const sid = data.sid || def.id || '';
+              const settings = data.settings;
+              if (!settings || typeof settings !== 'object') continue;
+              const colors = extractColors(settings);
+              if (colors.length === 0) continue;
+              const displayName = getSidDisplayName(sid) || STYPE_NAMES[settings.type] || 'Default';
+              studies.push({
+                source: 'defaults.json', type: settings.type || 'default',
+                sid, ns: '', id: `default_${sid}_${studies.length}`,
+                name: sid, displayName: `${displayName} (default)`, colors
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Scan templates.json — array of {name, settings, graphs: [{figures}]}
+    const templatesPath = path.join(wsConfig, 'templates.json');
+    if (fs.existsSync(templatesPath)) {
+      try {
+        const raw = fs.readFileSync(templatesPath, 'utf8').trim();
+        if (raw && raw !== '[]') {
+          const templates = JSON.parse(raw);
+          if (Array.isArray(templates)) {
+            for (const tpl of templates) {
+              // Template-level settings
+              if (tpl.settings && typeof tpl.settings === 'object') {
+                const colors = extractColors(tpl.settings);
+                if (colors.length > 0) {
+                  studies.push({
+                    source: 'templates.json', type: 'template',
+                    sid: '', ns: '', id: `tpl_${tpl.name || tpl.id || studies.length}`,
+                    name: tpl.name || '', displayName: `Template: ${tpl.name || 'Unnamed'}`, colors
+                  });
+                }
+              }
+              // Figures inside template graphs
+              if (Array.isArray(tpl.graphs)) {
+                scanStudiesFromJSON({ graphs: tpl.graphs }, 'templates.json', studies);
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
     // Also check settings.json for chart/bar themes with extra detail
     if (fs.existsSync(MW_SETTINGS)) {
       try {
@@ -914,7 +972,7 @@ ipcMain.handle('save-indicator-colors', async (event, { studyId, changes }) => {
     // Re-scan to find the study
     const studies = [];
     const fileData = {};
-    const files = ['windows.json', 'defaults.json', 'config.json'];
+    const files = ['windows.json', 'defaults.json', 'config.json', 'templates.json'];
 
     for (const file of files) {
       const fp = path.join(wsConfig, file);
@@ -993,6 +1051,13 @@ ipcMain.handle('save-indicator-colors', async (event, { studyId, changes }) => {
     }
 
     for (const [file, data] of Object.entries(fileData)) {
+      // For defaults.json, walk into each entry's data.settings
+      if (file === 'defaults.json' && Array.isArray(data)) {
+        for (const def of data) {
+          const d = def.data || def;
+          if (d && d.settings) applyChanges({ settings: d.settings });
+        }
+      }
       applyChanges(data);
       const fp = file === 'settings.json' ? MW_SETTINGS : path.join(wsConfig, file);
       fs.writeFileSync(fp, JSON.stringify(data));
