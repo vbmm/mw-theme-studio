@@ -485,6 +485,7 @@ mkdir -p "$BACKUP"
 if [ ! -f "$BACKUP/dark.css.backup" ]; then cp "$STYLES/dark.css" "$BACKUP/dark.css.backup" 2>/dev/null || true; fi
 if [ ! -f "$BACKUP/ui_theme.css.backup" ]; then cp "$STYLES/ui_theme.css" "$BACKUP/ui_theme.css.backup" 2>/dev/null || true; fi
 cp /tmp/mw-theme-dark.css "$STYLES/dark.css"
+if [ $? -ne 0 ]; then echo "PERM_ERROR"; exit 1; fi
 sed -i '' "s/-fx-font-family: '[^']*'/-fx-font-family: '${font}'/" "$STYLES/ui_theme.css"
 sed -i '' '/=== MW THEME STUDIO FONT OVERRIDE ===/,/=== END MW THEME STUDIO ===/d' "$STYLES/ui_theme.css"
 cat /tmp/mw-theme-font.txt >> "$STYLES/ui_theme.css"
@@ -492,11 +493,32 @@ echo "OK"`;
       fs.writeFileSync('/tmp/mw-theme-install.sh', script, { mode: 0o755 });
 
       const oscmd = `osascript -e 'do shell script "bash /tmp/mw-theme-install.sh" with administrator privileges'`;
-      exec(oscmd, (err) => {
-        if (err && err.message.includes('Operation not permitted')) {
-          const tcmd = `osascript -e 'tell application "Terminal"\nactivate\ndo script "sudo bash /tmp/mw-theme-install.sh && echo && echo \\"✅ Theme installed! Restart MotiveWave.\\" && sleep 2 && exit"\nend tell'`;
-          exec(tcmd, (e2) => resolve(e2 ? { ok: false, error: e2.message } : { ok: true }));
-        } else resolve(err ? { ok: false, error: err.message } : { ok: true });
+      exec(oscmd, (err, stdout) => {
+        if (err && (err.message.includes('Operation not permitted') || err.message.includes('PERM_ERROR'))) {
+          // App Management permission not granted — show dialog and open System Settings
+          const { shell } = require('electron');
+          dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
+            type: 'warning',
+            title: 'Permission Required',
+            message: 'macOS blocked writing to MotiveWave.',
+            detail: 'You need to grant App Management permission:\n\n' +
+              '1. System Settings will open to the right page\n' +
+              '2. Click the + button or toggle on "Terminal"\n' +
+              '3. Try Save & Apply again\n\n' +
+              'This is a one-time setup — macOS requires it to modify other apps.',
+            buttons: ['Open System Settings', 'Cancel'],
+            defaultId: 0
+          }).then(({ response }) => {
+            if (response === 0) {
+              exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
+            }
+            resolve({ ok: false, error: 'App Management permission needed. Open System Settings → Privacy & Security → App Management and add Terminal.' });
+          });
+        } else if (err) {
+          resolve({ ok: false, error: err.message });
+        } else {
+          resolve({ ok: true });
+        }
       });
     } catch (e) { resolve({ ok: false, error: e.message }); }
   });
@@ -514,9 +536,24 @@ echo "OK"`;
     fs.writeFileSync('/tmp/mw-theme-restore.sh', script, { mode: 0o755 });
     const oscmd = `osascript -e 'do shell script "bash /tmp/mw-theme-restore.sh" with administrator privileges'`;
     exec(oscmd, (err) => {
-      if (err && err.message.includes('Operation not permitted')) {
-        const tcmd = `osascript -e 'tell application "Terminal"\nactivate\ndo script "sudo bash /tmp/mw-theme-restore.sh && echo && echo \\"✅ Restored! Restart MotiveWave.\\" && sleep 2 && exit"\nend tell'`;
-        exec(tcmd, (e2) => resolve(e2 ? { ok: false, error: e2.message } : { ok: true }));
+      if (err && (err.message.includes('Operation not permitted') || err.message.includes('PERM_ERROR'))) {
+        const { shell } = require('electron');
+        dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
+          type: 'warning',
+          title: 'Permission Required',
+          message: 'macOS blocked writing to MotiveWave.',
+          detail: 'Grant App Management permission:\n\n' +
+            '1. System Settings will open to the right page\n' +
+            '2. Toggle on "Terminal"\n' +
+            '3. Try Restore again',
+          buttons: ['Open System Settings', 'Cancel'],
+          defaultId: 0
+        }).then(({ response }) => {
+          if (response === 0) {
+            exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
+          }
+          resolve({ ok: false, error: 'App Management permission needed.' });
+        });
       } else resolve(err ? { ok: false, error: err.message } : { ok: true });
     });
   });
