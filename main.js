@@ -61,58 +61,55 @@ const cssToId = {
   'hover-base': 'hoverBase', 'btn-pressed': 'btnPressed'
 };
 
-// ==================== PRIVILEGED WRITE ====================
-// macOS TCC blocks writing inside app bundles even with sudo/root.
-// Strategy: try osascript first (works when no TCC), then fall back to Terminal.
+// ==================== FILE WRITE (with TCC handling) ====================
+// Strategy: write directly from Node.js. If macOS TCC blocks it,
+// the app gets registered in App Management. User toggles it on once → works forever.
 
-function runPrivileged(scriptPath) {
-  return new Promise((resolve) => {
-    // Attempt 1: osascript with administrator privileges
-    const oscmd = `osascript -e 'do shell script "bash ${scriptPath}" with administrator privileges'`;
-    exec(oscmd, { timeout: 30000 }, (err, stdout) => {
-      if (!err) return resolve({ ok: true });
+let permissionGranted = false; // cache after first success
 
-      const msg = (err.message || '') + (stdout || '');
-      const isTCC = msg.includes('Operation not permitted');
-      const isCancelled = msg.includes('User canceled') || msg.includes('-128');
+function copyFile(src, dest) {
+  try {
+    fs.copyFileSync(src, dest);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
-      if (isCancelled) return resolve({ ok: false, error: 'Cancelled by user.' });
+function appendFile(content, dest) {
+  try {
+    fs.appendFileSync(dest, content);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
-      if (isTCC) {
-        // TCC blocked it — show dialog with options
-        const win = BrowserWindow.getFocusedWindow();
-        dialog.showMessageBox(win, {
-          type: 'warning',
-          title: 'Permission Required',
-          message: 'macOS blocked this action.',
-          detail: 'macOS requires App Management permission to modify app files.\n\n' +
-            'Option 1: Click "Open Settings" → toggle on MW Theme Studio (or Terminal)\n' +
-            'Option 2: Click "Use Terminal" to run the command manually\n\n' +
-            'This is a one-time setup.',
-          buttons: ['Open Settings', 'Use Terminal', 'Cancel'],
-          defaultId: 0
-        }).then(({ response }) => {
-          if (response === 0) {
-            exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
-            resolve({ ok: false, error: 'Grant App Management permission, then try again.' });
-          } else if (response === 1) {
-            // Attempt 2: Open Terminal with sudo
-            const tcmd = `osascript -e 'tell application "Terminal"
-activate
-do script "sudo bash ${scriptPath} && echo && echo \\"Done! You can close this window.\\" && sleep 2"
-end tell'`;
-            exec(tcmd, (e2) => {
-              resolve(e2 ? { ok: false, error: e2.message } : { ok: true, viaTerminal: true });
-            });
-          } else {
-            resolve({ ok: false, error: 'Cancelled.' });
-          }
-        });
-      } else {
-        resolve({ ok: false, error: msg.slice(0, 200) });
-      }
-    });
+function sedFile(dest, searchRegex, replacement) {
+  try {
+    let content = fs.readFileSync(dest, 'utf8');
+    content = content.replace(searchRegex, replacement);
+    fs.writeFileSync(dest, content);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function showPermissionDialog() {
+  const win = BrowserWindow.getFocusedWindow();
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'info',
+    title: 'One-Time Setup',
+    message: 'MW Theme Studio needs permission to modify MotiveWave.',
+    detail: 'System Settings will open.\n\nToggle on "MW Theme Studio" in the list, then click Save again.',
+    buttons: ['Open Settings', 'Cancel'],
+    defaultId: 0
   });
+  if (response === 0) {
+    exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
+  }
+  return { ok: false, error: 'Toggle on MW Theme Studio in App Management, then try again.' };
 }
 
 // ==================== WINDOW ====================
@@ -408,43 +405,59 @@ ipcMain.handle('import-theme-json', async () => {
 
 ipcMain.handle('apply-theme', async (event, { css, font }) => {
   try {
-    fs.writeFileSync('/tmp/mw-theme-dark.css', css);
-    const fontBlock = [
-      '', '/* === MW THEME STUDIO FONT OVERRIDE === */',
-      `* { -fx-font-family: "${font}"; }`,
-      `.label, .button, .toggle-button, .menu-item, .menu, .text, .text-input, .combo-box, .choice-box, .tab-pane .tab-label, .titled-pane > .title, .tool-bar, .status-bar, .dock-tab, .table-cell, .tree-cell, .list-cell { -fx-font-family: "${font}"; }`,
-      '/* === END MW THEME STUDIO === */', ''
-    ].join('\n');
-    fs.writeFileSync('/tmp/mw-theme-font.txt', fontBlock);
+    const darkPath = MW_STYLES + '/dark.css';
+    const uiPath = MW_STYLES + '/ui_theme.css';
+    const backupDir = path.join(process.env.HOME, '.mw-theme-backup');
 
-    const script = `#!/bin/bash
-STYLES="${MW_STYLES}"
-BACKUP="$HOME/.mw-theme-backup"
-mkdir -p "$BACKUP"
-[ ! -f "$BACKUP/dark.css.backup" ] && cp "$STYLES/dark.css" "$BACKUP/dark.css.backup" 2>/dev/null
-[ ! -f "$BACKUP/ui_theme.css.backup" ] && cp "$STYLES/ui_theme.css" "$BACKUP/ui_theme.css.backup" 2>/dev/null
-cp /tmp/mw-theme-dark.css "$STYLES/dark.css" || { echo "FAIL"; exit 1; }
-sed -i '' "s/-fx-font-family: '[^']*'/-fx-font-family: '${font}'/" "$STYLES/ui_theme.css"
-sed -i '' '/=== MW THEME STUDIO FONT OVERRIDE ===/,/=== END MW THEME STUDIO ===/d' "$STYLES/ui_theme.css"
-cat /tmp/mw-theme-font.txt >> "$STYLES/ui_theme.css"
-echo "OK"`;
-    fs.writeFileSync('/tmp/mw-theme-install.sh', script, { mode: 0o755 });
+    // Create backup on first save
+    fs.mkdirSync(backupDir, { recursive: true });
+    if (!fs.existsSync(path.join(backupDir, 'dark.css.backup'))) {
+      try { fs.copyFileSync(darkPath, path.join(backupDir, 'dark.css.backup')); } catch {}
+    }
+    if (!fs.existsSync(path.join(backupDir, 'ui_theme.css.backup'))) {
+      try { fs.copyFileSync(uiPath, path.join(backupDir, 'ui_theme.css.backup')); } catch {}
+    }
 
-    return await runPrivileged('/tmp/mw-theme-install.sh');
+    // Write dark.css directly
+    try {
+      fs.writeFileSync(darkPath, css);
+    } catch (e) {
+      if (e.code === 'EACCES' || e.code === 'EPERM') return await showPermissionDialog();
+      throw e;
+    }
+
+    // Update font in ui_theme.css
+    const fontBlock = '\n/* === MW THEME STUDIO FONT OVERRIDE === */\n' +
+      `* { -fx-font-family: "${font}"; }\n` +
+      `.label, .button, .toggle-button, .menu-item, .menu, .text, .text-input, .combo-box, .choice-box, .tab-pane .tab-label, .titled-pane > .title, .tool-bar, .status-bar, .dock-tab, .table-cell, .tree-cell, .list-cell { -fx-font-family: "${font}"; }\n` +
+      '/* === END MW THEME STUDIO === */\n';
+
+    sedFile(uiPath, /-fx-font-family: '[^']*'/g, `-fx-font-family: '${font}'`);
+    sedFile(uiPath, /\/\* === MW THEME STUDIO FONT OVERRIDE === \*\/[\s\S]*?\/\* === END MW THEME STUDIO === \*\/\n?/g, '');
+    appendFile(fontBlock, uiPath);
+
+    permissionGranted = true;
+    return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('restore-theme', async () => {
   try {
-    const script = `#!/bin/bash
-STYLES="${MW_STYLES}"
-BACKUP="$HOME/.mw-theme-backup"
-[ -f "$BACKUP/dark.css.backup" ] && cp "$BACKUP/dark.css.backup" "$STYLES/dark.css" || { echo "FAIL"; exit 1; }
-[ -f "$BACKUP/ui_theme.css.backup" ] && cp "$BACKUP/ui_theme.css.backup" "$STYLES/ui_theme.css"
-echo "OK"`;
-    fs.writeFileSync('/tmp/mw-theme-restore.sh', script, { mode: 0o755 });
+    const backupDir = path.join(process.env.HOME, '.mw-theme-backup');
+    const darkBackup = path.join(backupDir, 'dark.css.backup');
+    const uiBackup = path.join(backupDir, 'ui_theme.css.backup');
 
-    return await runPrivileged('/tmp/mw-theme-restore.sh');
+    if (!fs.existsSync(darkBackup)) return { ok: false, error: 'No backup found.' };
+
+    try {
+      fs.copyFileSync(darkBackup, MW_STYLES + '/dark.css');
+      if (fs.existsSync(uiBackup)) fs.copyFileSync(uiBackup, MW_STYLES + '/ui_theme.css');
+    } catch (e) {
+      if (e.code === 'EACCES' || e.code === 'EPERM') return await showPermissionDialog();
+      throw e;
+    }
+
+    return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
@@ -549,34 +562,35 @@ ipcMain.handle('install-update', async (event, downloadUrl) => {
     if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
     fs.mkdirSync(extractDir, { recursive: true });
 
+    win?.webContents.send('update-progress', 'Extracting...');
+
+    // Extract zip
+    await new Promise((res, rej) => {
+      exec(`cd "${extractDir}" && unzip -o "${zipPath}"`, (err) => err ? rej(err) : res());
+    });
+
+    // Remove quarantine
+    exec(`xattr -cr "${extractDir}/MW Theme Studio.app"`, () => {});
+
     win?.webContents.send('update-progress', 'Installing...');
 
+    // Write a small script that waits for us to quit, then replaces the app and relaunches
     const appPath = app.getPath('exe').replace(/\/Contents\/MacOS\/.*$/, '');
-    const updateScript = `#!/bin/bash
-cd "${extractDir}" && unzip -o "${zipPath}" > /dev/null 2>&1
-xattr -cr "${extractDir}/MW Theme Studio.app" 2>/dev/null
+    const script = `#!/bin/bash
+sleep 1
 rm -rf "${appPath}"
 mv "${extractDir}/MW Theme Studio.app" "${appPath}"
-rm -f "${zipPath}"
+xattr -cr "${appPath}" 2>/dev/null
+open "${appPath}"
+rm -f "${zipPath}" /tmp/mw-update.sh
 rm -rf "${extractDir}"
-rm -f /tmp/mw-theme-studio-updater.sh
-echo "OK"`;
-    fs.writeFileSync('/tmp/mw-theme-studio-updater.sh', updateScript, { mode: 0o755 });
+`;
+    fs.writeFileSync('/tmp/mw-update.sh', script, { mode: 0o755 });
 
-    // Use the same runPrivileged helper
-    const result = await runPrivileged('/tmp/mw-theme-studio-updater.sh');
-    if (result.ok && !result.viaTerminal) {
-      // Relaunch the new version
-      spawn('open', [appPath], { detached: true, stdio: 'ignore' }).unref();
-      setTimeout(() => app.quit(), 500);
-    } else if (result.ok && result.viaTerminal) {
-      // Terminal is handling it — quit so the script can replace the app
-      win?.webContents.send('update-progress', 'Terminal is installing. Quitting...');
-      setTimeout(() => app.quit(), 2000);
-    } else {
-      win?.webContents.send('update-progress', '');
-    }
-    return result;
+    // Launch updater detached, then quit
+    spawn('bash', ['/tmp/mw-update.sh'], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => app.quit(), 300);
+    return { ok: true };
   } catch (e) {
     win?.webContents.send('update-progress', '');
     return { ok: false, error: e.message };
