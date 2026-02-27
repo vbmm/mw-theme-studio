@@ -771,12 +771,11 @@ function scanStudiesFromJSON(obj, sourceFile, results, depth = 0) {
     for (const fig of obj.figures) {
       if (!fig || typeof fig !== 'object') continue;
       const sid = fig.sid || '';
+      if (!sid) continue; // No study ID, skip
       const ns = fig.ns || '';
-      const settings = fig.settings;
-      if (!settings || typeof settings !== 'object') continue;
+      const settings = (fig.settings && typeof fig.settings === 'object') ? fig.settings : {};
 
       const colors = extractColors(settings);
-      if (colors.length === 0) continue;
 
       const displayName = getSidDisplayName(sid) || STYPE_NAMES[settings.type] || settings.type || 'Unknown';
       const instrument = extractInstrument(obj, fig);
@@ -863,11 +862,9 @@ ipcMain.handle('scan-indicators', async () => {
               const data = def.data || def;
               if (!data || typeof data !== 'object') continue;
               const sid = data.sid || def.id || '';
-              const settings = data.settings;
-              if (!settings || typeof settings !== 'object') continue;
-              const colors = extractColors(settings);
-              if (colors.length === 0) continue;
-              const displayName = getSidDisplayName(sid) || STYPE_NAMES[settings.type] || 'Default';
+              const settings = data.settings || {};
+              const colors = extractColors(typeof settings === 'object' ? settings : {});
+              const displayName = getSidDisplayName(sid) || STYPE_NAMES[settings.type] || sid || 'Default';
               studies.push({
                 source: 'defaults.json', type: settings.type || 'default',
                 sid, ns: '', id: `default_${sid}_${studies.length}`,

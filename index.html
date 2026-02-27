@@ -1188,6 +1188,12 @@ function renderIndicators(studies) {
       colors.className = 'ind-study-colors';
       colors.id = 'ind-colors-' + study.id;
 
+      if (study.colors.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'font-size:10px;color:var(--text3);padding:8px 0;font-style:italic';
+        empty.textContent = 'No color settings configured yet. Customize this study in MotiveWave first.';
+        colors.appendChild(empty);
+      }
       for (const c of study.colors) {
         const row = document.createElement('div');
         row.className = 'crow';
