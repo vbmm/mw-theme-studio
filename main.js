@@ -61,55 +61,35 @@ const cssToId = {
   'hover-base': 'hoverBase', 'btn-pressed': 'btnPressed'
 };
 
-// ==================== FILE WRITE (with TCC handling) ====================
-// Strategy: write directly from Node.js. If macOS TCC blocks it,
-// the app gets registered in App Management. User toggles it on once → works forever.
+// ==================== FILE WRITE ====================
+// Strategy: write directly. If EACCES/EPERM, show a one-time Terminal command
+// that makes the MW styles dir writable. No TCC, no App Management, no osascript.
 
-let permissionGranted = false; // cache after first success
+const { clipboard } = require('electron');
 
-function copyFile(src, dest) {
+function canWriteMW() {
   try {
-    fs.copyFileSync(src, dest);
+    fs.accessSync(MW_STYLES + '/dark.css', fs.constants.W_OK);
     return true;
-  } catch (e) {
-    return false;
-  }
+  } catch { return false; }
 }
 
-function appendFile(content, dest) {
-  try {
-    fs.appendFileSync(dest, content);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function sedFile(dest, searchRegex, replacement) {
-  try {
-    let content = fs.readFileSync(dest, 'utf8');
-    content = content.replace(searchRegex, replacement);
-    fs.writeFileSync(dest, content);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function showPermissionDialog() {
+async function showSetupDialog() {
+  const cmd = `sudo chmod -R a+rw "/Applications/MotiveWave.app/Contents/styles"`;
   const win = BrowserWindow.getFocusedWindow();
   const { response } = await dialog.showMessageBox(win, {
     type: 'info',
     title: 'One-Time Setup',
-    message: 'MW Theme Studio needs permission to modify MotiveWave.',
-    detail: 'System Settings will open.\n\nToggle on "MW Theme Studio" in the list, then click Save again.',
-    buttons: ['Open Settings', 'Cancel'],
+    message: 'Run this command in Terminal (once):',
+    detail: cmd + '\n\nThis makes MotiveWave\'s theme files editable. After running it, click Save again.\n\nThe command has been copied to your clipboard.',
+    buttons: ['Copy & Open Terminal', 'Cancel'],
     defaultId: 0
   });
   if (response === 0) {
-    exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
+    clipboard.writeText(cmd);
+    exec('open -a Terminal');
   }
-  return { ok: false, error: 'Toggle on MW Theme Studio in App Management, then try again.' };
+  return { ok: false, error: 'Paste the command in Terminal, then try Save again.' };
 }
 
 // ==================== WINDOW ====================
@@ -405,6 +385,9 @@ ipcMain.handle('import-theme-json', async () => {
 
 ipcMain.handle('apply-theme', async (event, { css, font }) => {
   try {
+    // Check if we can write
+    if (!canWriteMW()) return await showSetupDialog();
+
     const darkPath = MW_STYLES + '/dark.css';
     const uiPath = MW_STYLES + '/ui_theme.css';
     const backupDir = path.join(process.env.HOME, '.mw-theme-backup');
@@ -418,44 +401,35 @@ ipcMain.handle('apply-theme', async (event, { css, font }) => {
       try { fs.copyFileSync(uiPath, path.join(backupDir, 'ui_theme.css.backup')); } catch {}
     }
 
-    // Write dark.css directly
-    try {
-      fs.writeFileSync(darkPath, css);
-    } catch (e) {
-      if (e.code === 'EACCES' || e.code === 'EPERM') return await showPermissionDialog();
-      throw e;
-    }
+    // Write dark.css
+    fs.writeFileSync(darkPath, css);
 
     // Update font in ui_theme.css
-    const fontBlock = '\n/* === MW THEME STUDIO FONT OVERRIDE === */\n' +
+    let uiCSS = fs.readFileSync(uiPath, 'utf8');
+    uiCSS = uiCSS.replace(/-fx-font-family: '[^']*'/g, `-fx-font-family: '${font}'`);
+    uiCSS = uiCSS.replace(/\n?\/\* === MW THEME STUDIO FONT OVERRIDE === \*\/[\s\S]*?\/\* === END MW THEME STUDIO === \*\/\n?/g, '');
+    uiCSS += '\n/* === MW THEME STUDIO FONT OVERRIDE === */\n' +
       `* { -fx-font-family: "${font}"; }\n` +
       `.label, .button, .toggle-button, .menu-item, .menu, .text, .text-input, .combo-box, .choice-box, .tab-pane .tab-label, .titled-pane > .title, .tool-bar, .status-bar, .dock-tab, .table-cell, .tree-cell, .list-cell { -fx-font-family: "${font}"; }\n` +
       '/* === END MW THEME STUDIO === */\n';
+    fs.writeFileSync(uiPath, uiCSS);
 
-    sedFile(uiPath, /-fx-font-family: '[^']*'/g, `-fx-font-family: '${font}'`);
-    sedFile(uiPath, /\/\* === MW THEME STUDIO FONT OVERRIDE === \*\/[\s\S]*?\/\* === END MW THEME STUDIO === \*\/\n?/g, '');
-    appendFile(fontBlock, uiPath);
-
-    permissionGranted = true;
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('restore-theme', async () => {
   try {
+    if (!canWriteMW()) return await showSetupDialog();
+
     const backupDir = path.join(process.env.HOME, '.mw-theme-backup');
     const darkBackup = path.join(backupDir, 'dark.css.backup');
     const uiBackup = path.join(backupDir, 'ui_theme.css.backup');
 
     if (!fs.existsSync(darkBackup)) return { ok: false, error: 'No backup found.' };
 
-    try {
-      fs.copyFileSync(darkBackup, MW_STYLES + '/dark.css');
-      if (fs.existsSync(uiBackup)) fs.copyFileSync(uiBackup, MW_STYLES + '/ui_theme.css');
-    } catch (e) {
-      if (e.code === 'EACCES' || e.code === 'EPERM') return await showPermissionDialog();
-      throw e;
-    }
+    fs.copyFileSync(darkBackup, MW_STYLES + '/dark.css');
+    if (fs.existsSync(uiBackup)) fs.copyFileSync(uiBackup, MW_STYLES + '/ui_theme.css');
 
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
