@@ -579,3 +579,150 @@ ipcMain.handle('read-ui-theme', async () => {
     return { ok: false, error: e.message };
   }
 });
+
+// ==================== AUTO-UPDATE ====================
+
+const https = require('https');
+const GITHUB_REPO = 'vbmm/mw-theme-studio';
+const CURRENT_VERSION = app.getVersion();
+
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'MW-Theme-Studio' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return httpGet(res.headers.location).then(resolve).catch(reject);
+      }
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, data }));
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+function httpDownload(url, dest) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'MW-Theme-Studio' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return httpDownload(res.headers.location, dest).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+      const file = fs.createWriteStream(dest);
+      res.pipe(file);
+      file.on('finish', () => { file.close(); resolve(); });
+    });
+    req.on('error', reject);
+    req.setTimeout(60000, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
+
+function compareVersions(a, b) {
+  const pa = a.replace(/^v/, '').split('.').map(Number);
+  const pb = b.replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+  }
+  return 0;
+}
+
+ipcMain.handle('get-app-version', () => CURRENT_VERSION);
+
+ipcMain.handle('check-for-update', async () => {
+  try {
+    const res = await httpGet(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+    if (res.status !== 200) return { available: false, error: 'Could not check for updates' };
+    const release = JSON.parse(res.data);
+    const latestVersion = release.tag_name || '';
+    const newer = compareVersions(CURRENT_VERSION, latestVersion) < 0;
+    const zipAsset = release.assets?.find(a => a.name.endsWith('.zip') && a.name.includes('arm64'));
+    return {
+      available: newer,
+      currentVersion: CURRENT_VERSION,
+      latestVersion: latestVersion.replace(/^v/, ''),
+      releaseNotes: release.body || '',
+      downloadUrl: zipAsset?.browser_download_url || null,
+      releaseName: release.name || ''
+    };
+  } catch (e) {
+    return { available: false, error: e.message };
+  }
+});
+
+ipcMain.handle('install-update', async (event, downloadUrl) => {
+  if (!downloadUrl) return { ok: false, error: 'No download URL' };
+  const win = BrowserWindow.getFocusedWindow();
+  try {
+    // Download zip
+    const zipPath = '/tmp/mw-theme-studio-update.zip';
+    const extractDir = '/tmp/mw-theme-studio-update';
+
+    win?.webContents.send('update-progress', 'Downloading update...');
+    await httpDownload(downloadUrl, zipPath);
+
+    // Clean extract dir
+    if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    win?.webContents.send('update-progress', 'Extracting...');
+
+    // Extract and replace using a background script that runs after app quits
+    const appPath = app.getPath('exe').replace(/\/Contents\/MacOS\/.*$/, '');
+    const updateScript = `#!/bin/bash
+# Wait for the app to quit
+sleep 1
+# Extract
+cd "${extractDir}" && unzip -o "${zipPath}" > /dev/null 2>&1
+# Remove quarantine
+xattr -cr "${extractDir}/MW Theme Studio.app" 2>/dev/null
+# Replace app
+rm -rf "${appPath}"
+mv "${extractDir}/MW Theme Studio.app" "${appPath}"
+# Relaunch
+open "${appPath}"
+# Cleanup
+rm -f "${zipPath}"
+rm -rf "${extractDir}"
+rm -f /tmp/mw-theme-studio-updater.sh
+`;
+    fs.writeFileSync('/tmp/mw-theme-studio-updater.sh', updateScript, { mode: 0o755 });
+
+    // Launch the updater script detached, then quit the app
+    const { spawn } = require('child_process');
+    spawn('bash', ['/tmp/mw-theme-studio-updater.sh'], {
+      detached: true,
+      stdio: 'ignore'
+    }).unref();
+
+    // Quit after a short delay to let the script start
+    setTimeout(() => app.quit(), 500);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// Check for updates on launch (silent, non-blocking)
+app.whenReady().then(() => {
+  setTimeout(async () => {
+    try {
+      const res = await httpGet(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+      if (res.status !== 200) return;
+      const release = JSON.parse(res.data);
+      const latestVersion = release.tag_name || '';
+      if (compareVersions(CURRENT_VERSION, latestVersion) < 0) {
+        const zipAsset = release.assets?.find(a => a.name.endsWith('.zip') && a.name.includes('arm64'));
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) {
+          win.webContents.send('update-available', {
+            latestVersion: latestVersion.replace(/^v/, ''),
+            downloadUrl: zipAsset?.browser_download_url || null,
+            releaseName: release.name || '',
+            releaseNotes: release.body || ''
+          });
+        }
+      }
+    } catch {}
+  }, 5000);
+});

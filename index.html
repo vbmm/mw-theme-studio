@@ -216,6 +216,15 @@
   .help-body .tip strong{color:var(--accent2)}
   .help-close{position:absolute;top:12px;right:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text);width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .15s}
   .help-close:hover{background:#1f2937;border-color:#374151}
+
+  .update-dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;margin-right:4px;box-shadow:0 0 6px var(--success);animation:updatePulse 2s infinite}
+  @keyframes updatePulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .update-modal{background:var(--bg);border:1px solid var(--border);border-radius:12px;width:420px;max-width:90vw;padding:24px;box-shadow:0 12px 48px rgba(0,0,0,.5)}
+  .update-modal h2{font-size:15px;font-weight:700;margin-bottom:6px}
+  .update-modal .ver{font-size:12px;color:var(--text2);margin-bottom:12px}
+  .update-modal .ver strong{color:var(--success)}
+  .update-modal .notes{font-size:11px;color:var(--text2);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:200px;overflow-y:auto;margin-bottom:16px;line-height:1.6;white-space:pre-wrap}
+  .update-modal .uactions{display:flex;gap:8px;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -235,7 +244,9 @@
     <button class="btn btn-success" id="saveBtn" onclick="saveApply()">✓ Save</button>
     <button class="btn btn-danger" onclick="restore()">Restore</button>
     <div class="divider"></div>
+    <button class="btn btn-ghost" onclick="checkUpdate()" id="updateBtn" title="Check for updates" style="display:none">Update</button>
     <button class="btn btn-ghost" onclick="showHelp()" title="Help">?</button>
+    <span style="font-size:9px;color:var(--text3)" id="versionLabel"></span>
   </div>
 </div>
 
@@ -961,6 +972,69 @@ function switchHelp(page){
   document.getElementById('helpBody').scrollTop=0;
 }
 
+// ==================== AUTO-UPDATE ====================
+let pendingUpdate=null;
+
+async function initVersion(){
+  if(!window.electronAPI?.getAppVersion)return;
+  const v=await window.electronAPI.getAppVersion();
+  document.getElementById('versionLabel').textContent='v'+v;
+}
+
+function showUpdateBanner(data){
+  pendingUpdate=data;
+  const btn=document.getElementById('updateBtn');
+  btn.style.display='inline-flex';
+  btn.innerHTML='<span class="update-dot"></span>Update';
+  btn.className='btn btn-success';
+}
+
+async function checkUpdate(){
+  if(pendingUpdate){showUpdateDialog(pendingUpdate);return;}
+  if(!window.electronAPI?.checkForUpdate){toast('Only available in app','err');return;}
+  toast('Checking...','ok');
+  const r=await window.electronAPI.checkForUpdate();
+  if(r.available){pendingUpdate=r;showUpdateDialog(r);}
+  else toast(r.error||'You\'re on the latest version','ok');
+}
+
+function showUpdateDialog(data){
+  const ov=document.createElement('div');ov.className='modal-overlay';
+  ov.innerHTML=`<div class="update-modal">
+    <h2>Update Available</h2>
+    <div class="ver">Current: v${data.currentVersion||'?'} → New: <strong>v${data.latestVersion}</strong></div>
+    ${data.releaseNotes?`<div class="notes">${escHtml(data.releaseNotes)}</div>`:''}
+    <div class="uactions">
+      <button class="btn" onclick="this.closest('.modal-overlay').remove()">Later</button>
+      <button class="btn btn-success" id="doUpdateBtn" onclick="doUpdate()">Install & Restart</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+}
+
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+async function doUpdate(){
+  if(!pendingUpdate?.downloadUrl){toast('No download URL in release','err');return;}
+  const btn=document.getElementById('doUpdateBtn');
+  if(btn){btn.disabled=true;btn.textContent='Downloading...';}
+  const r=await window.electronAPI.installUpdate(pendingUpdate.downloadUrl);
+  if(!r.ok){toast(r.error||'Update failed','err');if(btn){btn.disabled=false;btn.textContent='Install & Restart';}}
+}
+
+// Listen for auto-detected updates on launch
+if(window.electronAPI?.onUpdateAvailable){
+  window.electronAPI.onUpdateAvailable(data=>{showUpdateBanner(data);});
+}
+if(window.electronAPI?.onUpdateProgress){
+  window.electronAPI.onUpdateProgress(msg=>{
+    const btn=document.getElementById('doUpdateBtn');
+    if(btn)btn.textContent=msg;
+  });
+}
+
+initVersion();
 init();
 </script>
 </body>

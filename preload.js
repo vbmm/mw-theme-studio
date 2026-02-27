@@ -31,4 +31,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Undo/Redo from menu
   onUndo: (cb) => ipcRenderer.on('app-undo', cb),
   onRedo: (cb) => ipcRenderer.on('app-redo', cb),
+  // Updates
+  checkForUpdate: () => ipcRenderer.invoke('check-for-update'),
+  installUpdate: (url) => ipcRenderer.invoke('install-update', url),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  onUpdateAvailable: (cb) => ipcRenderer.on('update-available', (_, data) => cb(data)),
+  onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_, msg) => cb(msg)),
 });
