@@ -1,7 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const https = require('https');
+const { exec, spawn } = require('child_process');
+const os = require('os');
 
 const MW_STYLES = '/Applications/MotiveWave.app/Contents/styles';
 const MW_USER = path.join(process.env.HOME, 'Library/MotiveWave');
@@ -9,6 +11,10 @@ const MW_SETTINGS = path.join(MW_USER, 'settings.json');
 const MW_WORKSPACES = path.join(MW_USER, 'workspaces');
 const PRESETS_DIR = path.join(process.env.HOME, '.mw-theme-studio');
 const PRESETS_FILE = path.join(PRESETS_DIR, 'presets.json');
+const GITHUB_REPO = 'vbmm/mw-theme-studio';
+const CURRENT_VERSION = app.getVersion();
+
+// ==================== HELPERS ====================
 
 function getActiveWorkspace() {
   try {
@@ -27,60 +33,6 @@ function getWorkspaceConfigPath() {
 function getWorkspaceDefaultsPath() {
   return path.join(MW_WORKSPACES, getActiveWorkspace(), 'config', 'defaults.json');
 }
-
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1280, height: 860, minWidth: 900, minHeight: 600,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
-    backgroundColor: '#030712',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true, nodeIntegration: false
-    }
-  });
-  win.loadFile('index.html');
-
-  // Intercept Cmd+Z/Cmd+Shift+Z BEFORE native handling
-  win.webContents.on('before-input-event', (event, input) => {
-    if ((input.meta || input.control) && input.key.toLowerCase() === 'z') {
-      // Check if focused on a real text input — if so, let native undo handle it
-      win.webContents.executeJavaScript(`
-        (function() {
-          const el = document.activeElement;
-          const isText = el && ((el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'number' || el.type === 'search')) || el.tagName === 'TEXTAREA' || el.isContentEditable);
-          if (!isText) {
-            ${input.shift ? 'window.__mwts_redo && window.__mwts_redo()' : 'window.__mwts_undo && window.__mwts_undo()'};
-          }
-          return isText;
-        })()
-      `).then(isText => {
-        // isText = true means native undo should work (text field focused)
-      }).catch(() => {});
-      // Always prevent Electron's native undo — our handler above decides what to do
-      event.preventDefault();
-    }
-  });
-
-  // Minimal menu (keep cut/copy/paste working)
-  const menu = Menu.buildFromTemplate([
-    { role: 'appMenu' },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }
-      ]
-    },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' }
-  ]);
-  Menu.setApplicationMenu(menu);
-}
-
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => app.quit());
-
-// ==================== HELPERS ====================
 
 function rgbStrToHex(str) {
   if (!str) return '#000000';
@@ -109,6 +61,129 @@ const cssToId = {
   'hover-base': 'hoverBase', 'btn-pressed': 'btnPressed'
 };
 
+// ==================== PRIVILEGED WRITE ====================
+// macOS TCC blocks writing inside app bundles even with sudo/root.
+// Strategy: try osascript first (works when no TCC), then fall back to Terminal.
+
+function runPrivileged(scriptPath) {
+  return new Promise((resolve) => {
+    // Attempt 1: osascript with administrator privileges
+    const oscmd = `osascript -e 'do shell script "bash ${scriptPath}" with administrator privileges'`;
+    exec(oscmd, { timeout: 30000 }, (err, stdout) => {
+      if (!err) return resolve({ ok: true });
+
+      const msg = (err.message || '') + (stdout || '');
+      const isTCC = msg.includes('Operation not permitted');
+      const isCancelled = msg.includes('User canceled') || msg.includes('-128');
+
+      if (isCancelled) return resolve({ ok: false, error: 'Cancelled by user.' });
+
+      if (isTCC) {
+        // TCC blocked it — show dialog with options
+        const win = BrowserWindow.getFocusedWindow();
+        dialog.showMessageBox(win, {
+          type: 'warning',
+          title: 'Permission Required',
+          message: 'macOS blocked this action.',
+          detail: 'macOS requires App Management permission to modify app files.\n\n' +
+            'Option 1: Click "Open Settings" → toggle on MW Theme Studio (or Terminal)\n' +
+            'Option 2: Click "Use Terminal" to run the command manually\n\n' +
+            'This is a one-time setup.',
+          buttons: ['Open Settings', 'Use Terminal', 'Cancel'],
+          defaultId: 0
+        }).then(({ response }) => {
+          if (response === 0) {
+            exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
+            resolve({ ok: false, error: 'Grant App Management permission, then try again.' });
+          } else if (response === 1) {
+            // Attempt 2: Open Terminal with sudo
+            const tcmd = `osascript -e 'tell application "Terminal"
+activate
+do script "sudo bash ${scriptPath} && echo && echo \\"Done! You can close this window.\\" && sleep 2"
+end tell'`;
+            exec(tcmd, (e2) => {
+              resolve(e2 ? { ok: false, error: e2.message } : { ok: true, viaTerminal: true });
+            });
+          } else {
+            resolve({ ok: false, error: 'Cancelled.' });
+          }
+        });
+      } else {
+        resolve({ ok: false, error: msg.slice(0, 200) });
+      }
+    });
+  });
+}
+
+// ==================== WINDOW ====================
+
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 1280, height: 860, minWidth: 900, minHeight: 600,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 16 },
+    backgroundColor: '#030712',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true, nodeIntegration: false
+    }
+  });
+  win.loadFile('index.html');
+
+  // Intercept Cmd+Z/Cmd+Shift+Z BEFORE native handling
+  win.webContents.on('before-input-event', (event, input) => {
+    if ((input.meta || input.control) && input.key.toLowerCase() === 'z') {
+      win.webContents.executeJavaScript(`
+        (function() {
+          const el = document.activeElement;
+          const isText = el && ((el.tagName === 'INPUT' && (el.type === 'text' || el.type === 'number' || el.type === 'search')) || el.tagName === 'TEXTAREA' || el.isContentEditable);
+          if (!isText) {
+            ${input.shift ? 'window.__mwts_redo && window.__mwts_redo()' : 'window.__mwts_undo && window.__mwts_undo()'};
+          }
+          return isText;
+        })()
+      `).then(() => {}).catch(() => {});
+      event.preventDefault();
+    }
+  });
+
+  const menu = Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    { label: 'Edit', submenu: [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]);
+  Menu.setApplicationMenu(menu);
+  return win;
+}
+
+// Single whenReady — creates window + starts update check
+app.whenReady().then(() => {
+  const win = createWindow();
+
+  // Silent update check after 5s
+  setTimeout(async () => {
+    try {
+      const res = await httpGet(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+      if (res.status !== 200) return;
+      const release = JSON.parse(res.data);
+      const latestVersion = release.tag_name || '';
+      if (compareVersions(CURRENT_VERSION, latestVersion) < 0) {
+        const zipAsset = release.assets?.find(a => a.name.endsWith('.zip') && a.name.includes('arm64'));
+        win.webContents.send('update-available', {
+          currentVersion: CURRENT_VERSION,
+          latestVersion: latestVersion.replace(/^v/, ''),
+          downloadUrl: zipAsset?.browser_download_url || null,
+          releaseName: release.name || '',
+          releaseNotes: release.body || ''
+        });
+      }
+    } catch {}
+  }, 5000);
+});
+
+app.on('window-all-closed', () => app.quit());
+
 // ==================== IPC: THEME ====================
 
 ipcMain.handle('check-mw', async () => {
@@ -125,22 +200,16 @@ ipcMain.handle('read-current-theme', async () => {
     let m;
     while ((m = regex.exec(css)) !== null) {
       const id = cssToId[m[1]];
-      if (id) {
-        colors[id] = '#' + [m[2], m[3], m[4]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
-      }
+      if (id) colors[id] = '#' + [m[2], m[3], m[4]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('');
     }
-    // Read font
     const fontMatch = css.match(/-fx-font-family:\s*'([^']+)'/);
     const font = fontMatch ? fontMatch[1] : 'Monaco';
-    // Read accent & focus
     const accentMatch = css.match(/-fx-accent:\s*rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
     const accent = accentMatch ? '#' + [accentMatch[1], accentMatch[2], accentMatch[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('') : null;
     const focusMatch = css.match(/-fx-focus-color:\s*rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
     const focus = focusMatch ? '#' + [focusMatch[1], focusMatch[2], focusMatch[3]].map(n => parseInt(n).toString(16).padStart(2, '0')).join('') : null;
     return { ok: true, colors, font, accent, focus };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 // ==================== IPC: CHART COLORS ====================
@@ -153,81 +222,41 @@ ipcMain.handle('read-chart-colors', async () => {
     const bt = settings.barThemes?.[0] || {};
     return {
       ok: true,
-      chart: {
-        background: rgbStrToHex(ct.background),
-        axisLine: rgbStrToHex(ct.axisLine),
-        gridLine: rgbStrToHex(ct.gridLine),
-        crossHair: rgbStrToHex(ct.crossHair),
-        textFg: rgbStrToHex(ct.textFg),
-      },
-      bars: {
-        up: rgbStrToHex(bt.up),
-        upFill: rgbStrToHex(bt.upFill),
-        upOutline: rgbStrToHex(bt.upOutline),
-        down: rgbStrToHex(bt.down),
-        downFill: rgbStrToHex(bt.downFill),
-        downOutline: rgbStrToHex(bt.downOutline),
-      },
-      // Pass raw for alpha preservation
+      chart: { background: rgbStrToHex(ct.background), axisLine: rgbStrToHex(ct.axisLine), gridLine: rgbStrToHex(ct.gridLine), crossHair: rgbStrToHex(ct.crossHair), textFg: rgbStrToHex(ct.textFg) },
+      bars: { up: rgbStrToHex(bt.up), upFill: rgbStrToHex(bt.upFill), upOutline: rgbStrToHex(bt.upOutline), down: rgbStrToHex(bt.down), downFill: rgbStrToHex(bt.downFill), downOutline: rgbStrToHex(bt.downOutline) },
       _raw: { chartTheme: ct, barTheme: bt }
     };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('save-chart-colors', async (event, { chart, bars }) => {
   try {
     if (!fs.existsSync(MW_SETTINGS)) return { ok: false, error: 'settings.json not found' };
     const settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
-
-    // Update chart theme
     if (settings.chartThemes?.[0]) {
       const ct = settings.chartThemes[0];
-      ct.background = hexToRgbStr(chart.background);
-      ct.axisLine = hexToRgbStr(chart.axisLine);
-      ct.gridLine = hexToRgbStr(chart.gridLine);
-      ct.crossHair = hexToRgbStr(chart.crossHair);
-      ct.textFg = hexToRgbStr(chart.textFg);
+      ct.background = hexToRgbStr(chart.background); ct.axisLine = hexToRgbStr(chart.axisLine);
+      ct.gridLine = hexToRgbStr(chart.gridLine); ct.crossHair = hexToRgbStr(chart.crossHair); ct.textFg = hexToRgbStr(chart.textFg);
     }
-
-    // Update bar theme (preserve alpha from originals)
     if (settings.barThemes?.[0]) {
       const bt = settings.barThemes[0];
       const getAlpha = (orig) => { const p = (orig || '').split(','); return p.length >= 4 ? parseInt(p[3]) : undefined; };
-      bt.up = hexToRgbStr(bars.up);
-      bt.upFill = hexToRgbStr(bars.upFill, getAlpha(bt.upFill) || 210);
-      bt.upOutline = hexToRgbStr(bars.upOutline);
-      bt.down = hexToRgbStr(bars.down);
-      bt.downFill = hexToRgbStr(bars.downFill, getAlpha(bt.downFill) || 210);
-      bt.downOutline = hexToRgbStr(bars.downOutline);
+      bt.up = hexToRgbStr(bars.up); bt.upFill = hexToRgbStr(bars.upFill, getAlpha(bt.upFill) || 210); bt.upOutline = hexToRgbStr(bars.upOutline);
+      bt.down = hexToRgbStr(bars.down); bt.downFill = hexToRgbStr(bars.downFill, getAlpha(bt.downFill) || 210); bt.downOutline = hexToRgbStr(bars.downOutline);
     }
-
     fs.writeFileSync(MW_SETTINGS, JSON.stringify(settings));
     return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 // ==================== IPC: TRADING COLORS ====================
 
-// Parse MW font string: "Name|Size|Style||FgColor|BgColor"
 function parseMWFont(fontStr) {
   if (!fontStr) return null;
   const parts = fontStr.split('|');
-  return {
-    font: parts[0] || 'Monaco',
-    size: parts[1] || '12',
-    style: parts[2] || '',
-    sep: parts[3] !== undefined ? parts[3] : '',
-    fgColor: parts[4] || '',
-    bgColor: parts[5] || '',
-    raw: fontStr
-  };
+  return { font: parts[0] || 'Monaco', size: parts[1] || '12', style: parts[2] || '', sep: parts[3] !== undefined ? parts[3] : '', fgColor: parts[4] || '', bgColor: parts[5] || '', raw: fontStr };
 }
 
-// Rebuild MW font string from parsed parts
 function buildMWFont(parsed, overrides) {
   const fg = overrides.fgColor !== undefined ? overrides.fgColor : parsed.fgColor;
   const bg = overrides.bgColor !== undefined ? overrides.bgColor : parsed.bgColor;
@@ -236,7 +265,6 @@ function buildMWFont(parsed, overrides) {
   return result;
 }
 
-// Find widget by type in nested widget arrays (recursive)
 function findWidgets(widgets, type) {
   const found = [];
   if (!Array.isArray(widgets)) return found;
@@ -254,53 +282,21 @@ ipcMain.handle('read-trading-colors', async () => {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     const table = cfg.table || {};
     const dom = cfg.dom || {};
-
-    // Extract buy/sell button colors from DOM bottomPanel + tradePanel widgets
     const buttons = { buyText: '000000', buyBg: 'FFFFFF99', sellText: 'FFFFFF', sellBg: 'A52A2A99' };
-
-    // Check DOM bottomPanel widgets
     const domBP = dom.bottomPanel;
     if (domBP && domBP.widgets) {
       const bms = findWidgets(domBP.widgets, 'BM');
       const sms = findWidgets(domBP.widgets, 'SM');
-      if (bms.length && bms[0].font) {
-        const p = parseMWFont(bms[0].font);
-        if (p) { buttons.buyText = p.fgColor || buttons.buyText; buttons.buyBg = p.bgColor || buttons.buyBg; }
-      }
-      if (sms.length && sms[0].font) {
-        const p = parseMWFont(sms[0].font);
-        if (p) { buttons.sellText = p.fgColor || buttons.sellText; buttons.sellBg = p.bgColor || buttons.sellBg; }
-      }
+      if (bms.length && bms[0].font) { const p = parseMWFont(bms[0].font); if (p) { buttons.buyText = p.fgColor || buttons.buyText; buttons.buyBg = p.bgColor || buttons.buyBg; } }
+      if (sms.length && sms[0].font) { const p = parseMWFont(sms[0].font); if (p) { buttons.sellText = p.fgColor || buttons.sellText; buttons.sellBg = p.bgColor || buttons.sellBg; } }
     }
-
     return {
       ok: true,
-      table: {
-        upText: table.upText || 'FFFFFF',
-        downText: table.downText || 'FF0000',
-        upBg: table.upBg || 'FFFFFF',
-        downBg: table.downBg || '962323',
-        upArrow: table.upArrow || 'FFFFFF',
-        downArrow: table.downArrow || 'FF0000',
-      },
-      dom: {
-        bidColor: dom.bidColor || 'FF000033',
-        askColor: dom.askColor || 'FFFFFF33',
-        atBidText: dom.atBidText || 'FF0000',
-        atAskText: dom.atAskText || 'FFFFFF',
-        atBidHighlight: dom.atBidHighlight || 'F0000066',
-        atAskHighlight: dom.atAskHighlight || 'FFFFFF66',
-        bgColor: dom.bgColor || '000000',
-        priceText: dom.priceText || '969696CC',
-        mboBidFill: dom.mboBidFill || 'FFFFFF',
-        mboAskFill: dom.mboAskFill || 'EB3232',
-      },
-      buttons,
-      workspace: getActiveWorkspace()
+      table: { upText: table.upText || 'FFFFFF', downText: table.downText || 'FF0000', upBg: table.upBg || 'FFFFFF', downBg: table.downBg || '962323', upArrow: table.upArrow || 'FFFFFF', downArrow: table.downArrow || 'FF0000' },
+      dom: { bidColor: dom.bidColor || 'FF000033', askColor: dom.askColor || 'FFFFFF33', atBidText: dom.atBidText || 'FF0000', atAskText: dom.atAskText || 'FFFFFF', atBidHighlight: dom.atBidHighlight || 'F0000066', atAskHighlight: dom.atAskHighlight || 'FFFFFF66', bgColor: dom.bgColor || '000000', priceText: dom.priceText || '969696CC', mboBidFill: dom.mboBidFill || 'FFFFFF', mboAskFill: dom.mboAskFill || 'EB3232' },
+      buttons, workspace: getActiveWorkspace()
     };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('save-trading-colors', async (event, { table, dom, buttons }) => {
@@ -308,60 +304,35 @@ ipcMain.handle('save-trading-colors', async (event, { table, dom, buttons }) => 
     const cfgPath = getWorkspaceConfigPath();
     if (!fs.existsSync(cfgPath)) return { ok: false, error: 'Workspace config not found' };
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    if (table) {
-      if (!cfg.table) cfg.table = {};
-      Object.assign(cfg.table, table);
-    }
-    if (dom) {
-      if (!cfg.dom) cfg.dom = {};
-      // Don't overwrite nested objects like bottomPanel
-      for (const [k, v] of Object.entries(dom)) {
-        cfg.dom[k] = v;
-      }
-    }
-
-    // Update buy/sell button font strings in DOM bottomPanel + tradePanel
+    if (table) { if (!cfg.table) cfg.table = {}; Object.assign(cfg.table, table); }
+    if (dom) { if (!cfg.dom) cfg.dom = {}; for (const [k, v] of Object.entries(dom)) cfg.dom[k] = v; }
     if (buttons) {
       const updateWidgetColors = (widgets, type, fgColor, bgColor) => {
         if (!Array.isArray(widgets)) return;
         for (const w of widgets) {
-          if (w.type === type) {
-            const p = parseMWFont(w.font || `Monaco|12|||${fgColor}|${bgColor}`);
-            w.font = buildMWFont(p, { fgColor, bgColor });
-          }
+          if (w.type === type) { const p = parseMWFont(w.font || `Monaco|12|||${fgColor}|${bgColor}`); w.font = buildMWFont(p, { fgColor, bgColor }); }
           if (w.widgets) updateWidgetColors(w.widgets, type, fgColor, bgColor);
         }
       };
-
-      // Update DOM bottomPanel
-      if (cfg.dom && cfg.dom.bottomPanel && cfg.dom.bottomPanel.widgets) {
+      if (cfg.dom?.bottomPanel?.widgets) {
         updateWidgetColors(cfg.dom.bottomPanel.widgets, 'BM', buttons.buyText, buttons.buyBg);
         updateWidgetColors(cfg.dom.bottomPanel.widgets, 'SM', buttons.sellText, buttons.sellBg);
       }
-
-      // Update tradePanel panels
-      if (cfg.tradePanel && cfg.tradePanel.panels) {
+      if (cfg.tradePanel?.panels) {
         for (const panel of cfg.tradePanel.panels) {
-          if (panel.widgets) {
-            updateWidgetColors(panel.widgets, 'BM', buttons.buyText, buttons.buyBg);
-            updateWidgetColors(panel.widgets, 'SM', buttons.sellText, buttons.sellBg);
-          }
+          if (panel.widgets) { updateWidgetColors(panel.widgets, 'BM', buttons.buyText, buttons.buyBg); updateWidgetColors(panel.widgets, 'SM', buttons.sellText, buttons.sellBg); }
         }
       }
     }
-
     fs.writeFileSync(cfgPath, JSON.stringify(cfg));
     return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
-// ==================== IPC: EXPORT/IMPORT ALL ====================
+// ==================== IPC: EXPORT/IMPORT ====================
 
 ipcMain.handle('export-all', async (event, bundle) => {
   try {
-    // Attach raw workspace files for full restore
     bundle.files = {};
     if (fs.existsSync(MW_SETTINGS)) bundle.files.settings = JSON.parse(fs.readFileSync(MW_SETTINGS, 'utf8'));
     const defaultsPath = getWorkspaceDefaultsPath();
@@ -369,35 +340,18 @@ ipcMain.handle('export-all', async (event, bundle) => {
     const configPath = getWorkspaceConfigPath();
     if (fs.existsSync(configPath)) bundle.files.config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     bundle.workspace = getActiveWorkspace();
-
-    const result = await dialog.showSaveDialog({
-      defaultPath: 'my-mw-theme.mwtheme',
-      filters: [{ name: 'MW Theme Bundle', extensions: ['mwtheme'] }]
-    });
-    if (!result.canceled && result.filePath) {
-      fs.writeFileSync(result.filePath, JSON.stringify(bundle, null, 2));
-      return { ok: true, path: result.filePath };
-    }
+    const result = await dialog.showSaveDialog({ defaultPath: 'my-mw-theme.mwtheme', filters: [{ name: 'MW Theme Bundle', extensions: ['mwtheme'] }] });
+    if (!result.canceled && result.filePath) { fs.writeFileSync(result.filePath, JSON.stringify(bundle, null, 2)); return { ok: true, path: result.filePath }; }
     return { ok: false };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('import-all', async () => {
   try {
-    const result = await dialog.showOpenDialog({
-      filters: [{ name: 'MW Theme', extensions: ['mwtheme', 'json'] }],
-      properties: ['openFile']
-    });
-    if (!result.canceled && result.filePaths[0]) {
-      const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
-      return { ok: true, data };
-    }
+    const result = await dialog.showOpenDialog({ filters: [{ name: 'MW Theme', extensions: ['mwtheme', 'json'] }], properties: ['openFile'] });
+    if (!result.canceled && result.filePaths[0]) { return { ok: true, data: JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8')) }; }
     return { ok: false };
-  } catch (e) {
-    return { ok: false, error: 'Invalid theme file: ' + e.message };
-  }
+  } catch (e) { return { ok: false, error: 'Invalid theme file: ' + e.message }; }
 });
 
 ipcMain.handle('open-fda-settings', async () => {
@@ -435,128 +389,63 @@ ipcMain.handle('delete-preset', async (event, { name }) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
-// ==================== IPC: SHARE (JSON) ====================
-
 ipcMain.handle('export-theme-json', async (event, { themeData }) => {
-  const result = await dialog.showSaveDialog({
-    defaultPath: 'my-mw-theme.json',
-    filters: [{ name: 'Theme', extensions: ['json'] }]
-  });
-  if (!result.canceled && result.filePath) {
-    fs.writeFileSync(result.filePath, JSON.stringify(themeData, null, 2));
-    return { ok: true, path: result.filePath };
-  }
+  const result = await dialog.showSaveDialog({ defaultPath: 'my-mw-theme.json', filters: [{ name: 'Theme', extensions: ['json'] }] });
+  if (!result.canceled && result.filePath) { fs.writeFileSync(result.filePath, JSON.stringify(themeData, null, 2)); return { ok: true, path: result.filePath }; }
   return { ok: false };
 });
 
 ipcMain.handle('import-theme-json', async () => {
-  const result = await dialog.showOpenDialog({
-    filters: [{ name: 'Theme', extensions: ['json'] }],
-    properties: ['openFile']
-  });
+  const result = await dialog.showOpenDialog({ filters: [{ name: 'Theme', extensions: ['json'] }], properties: ['openFile'] });
   if (!result.canceled && result.filePaths[0]) {
-    try {
-      const data = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
-      return { ok: true, data };
-    } catch (e) { return { ok: false, error: 'Invalid theme file' }; }
+    try { return { ok: true, data: JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8')) }; }
+    catch (e) { return { ok: false, error: 'Invalid theme file' }; }
   }
   return { ok: false };
 });
 
-// ==================== IPC: INSTALL ====================
+// ==================== IPC: INSTALL THEME ====================
 
 ipcMain.handle('apply-theme', async (event, { css, font }) => {
-  return new Promise((resolve) => {
-    try {
-      fs.writeFileSync('/tmp/mw-theme-dark.css', css);
-      const fontBlock = [
-        '', '/* === MW THEME STUDIO FONT OVERRIDE === */',
-        `* { -fx-font-family: "${font}"; }`,
-        `.label, .button, .toggle-button, .menu-item, .menu, .text, .text-input, .combo-box, .choice-box, .tab-pane .tab-label, .titled-pane > .title, .tool-bar, .status-bar, .dock-tab, .table-cell, .tree-cell, .list-cell { -fx-font-family: "${font}"; }`,
-        '/* === END MW THEME STUDIO === */', ''
-      ].join('\n');
-      fs.writeFileSync('/tmp/mw-theme-font.txt', fontBlock);
+  try {
+    fs.writeFileSync('/tmp/mw-theme-dark.css', css);
+    const fontBlock = [
+      '', '/* === MW THEME STUDIO FONT OVERRIDE === */',
+      `* { -fx-font-family: "${font}"; }`,
+      `.label, .button, .toggle-button, .menu-item, .menu, .text, .text-input, .combo-box, .choice-box, .tab-pane .tab-label, .titled-pane > .title, .tool-bar, .status-bar, .dock-tab, .table-cell, .tree-cell, .list-cell { -fx-font-family: "${font}"; }`,
+      '/* === END MW THEME STUDIO === */', ''
+    ].join('\n');
+    fs.writeFileSync('/tmp/mw-theme-font.txt', fontBlock);
 
-      const script = `#!/bin/bash
-set -e
+    const script = `#!/bin/bash
 STYLES="${MW_STYLES}"
 BACKUP="$HOME/.mw-theme-backup"
 mkdir -p "$BACKUP"
-if [ ! -f "$BACKUP/dark.css.backup" ]; then cp "$STYLES/dark.css" "$BACKUP/dark.css.backup" 2>/dev/null || true; fi
-if [ ! -f "$BACKUP/ui_theme.css.backup" ]; then cp "$STYLES/ui_theme.css" "$BACKUP/ui_theme.css.backup" 2>/dev/null || true; fi
-cp /tmp/mw-theme-dark.css "$STYLES/dark.css"
-if [ $? -ne 0 ]; then echo "PERM_ERROR"; exit 1; fi
+[ ! -f "$BACKUP/dark.css.backup" ] && cp "$STYLES/dark.css" "$BACKUP/dark.css.backup" 2>/dev/null
+[ ! -f "$BACKUP/ui_theme.css.backup" ] && cp "$STYLES/ui_theme.css" "$BACKUP/ui_theme.css.backup" 2>/dev/null
+cp /tmp/mw-theme-dark.css "$STYLES/dark.css" || { echo "FAIL"; exit 1; }
 sed -i '' "s/-fx-font-family: '[^']*'/-fx-font-family: '${font}'/" "$STYLES/ui_theme.css"
 sed -i '' '/=== MW THEME STUDIO FONT OVERRIDE ===/,/=== END MW THEME STUDIO ===/d' "$STYLES/ui_theme.css"
 cat /tmp/mw-theme-font.txt >> "$STYLES/ui_theme.css"
 echo "OK"`;
-      fs.writeFileSync('/tmp/mw-theme-install.sh', script, { mode: 0o755 });
+    fs.writeFileSync('/tmp/mw-theme-install.sh', script, { mode: 0o755 });
 
-      const oscmd = `osascript -e 'do shell script "bash /tmp/mw-theme-install.sh" with administrator privileges'`;
-      exec(oscmd, (err, stdout) => {
-        if (err && (err.message.includes('Operation not permitted') || err.message.includes('PERM_ERROR'))) {
-          // App Management permission not granted — show dialog and open System Settings
-          const { shell } = require('electron');
-          dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
-            type: 'warning',
-            title: 'Permission Required',
-            message: 'macOS blocked writing to MotiveWave.',
-            detail: 'You need to grant App Management permission:\n\n' +
-              '1. System Settings will open to the right page\n' +
-              '2. Click the + button or toggle on "Terminal"\n' +
-              '3. Try Save & Apply again\n\n' +
-              'This is a one-time setup — macOS requires it to modify other apps.',
-            buttons: ['Open System Settings', 'Cancel'],
-            defaultId: 0
-          }).then(({ response }) => {
-            if (response === 0) {
-              exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
-            }
-            resolve({ ok: false, error: 'App Management permission needed. Open System Settings → Privacy & Security → App Management and add Terminal.' });
-          });
-        } else if (err) {
-          resolve({ ok: false, error: err.message });
-        } else {
-          resolve({ ok: true });
-        }
-      });
-    } catch (e) { resolve({ ok: false, error: e.message }); }
-  });
+    return await runPrivileged('/tmp/mw-theme-install.sh');
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('restore-theme', async () => {
-  return new Promise((resolve) => {
+  try {
     const script = `#!/bin/bash
-set -e
 STYLES="${MW_STYLES}"
 BACKUP="$HOME/.mw-theme-backup"
-[ -f "$BACKUP/dark.css.backup" ] && cp "$BACKUP/dark.css.backup" "$STYLES/dark.css"
+[ -f "$BACKUP/dark.css.backup" ] && cp "$BACKUP/dark.css.backup" "$STYLES/dark.css" || { echo "FAIL"; exit 1; }
 [ -f "$BACKUP/ui_theme.css.backup" ] && cp "$BACKUP/ui_theme.css.backup" "$STYLES/ui_theme.css"
 echo "OK"`;
     fs.writeFileSync('/tmp/mw-theme-restore.sh', script, { mode: 0o755 });
-    const oscmd = `osascript -e 'do shell script "bash /tmp/mw-theme-restore.sh" with administrator privileges'`;
-    exec(oscmd, (err) => {
-      if (err && (err.message.includes('Operation not permitted') || err.message.includes('PERM_ERROR'))) {
-        const { shell } = require('electron');
-        dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
-          type: 'warning',
-          title: 'Permission Required',
-          message: 'macOS blocked writing to MotiveWave.',
-          detail: 'Grant App Management permission:\n\n' +
-            '1. System Settings will open to the right page\n' +
-            '2. Toggle on "Terminal"\n' +
-            '3. Try Restore again',
-          buttons: ['Open System Settings', 'Cancel'],
-          defaultId: 0
-        }).then(({ response }) => {
-          if (response === 0) {
-            exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement"');
-          }
-          resolve({ ok: false, error: 'App Management permission needed.' });
-        });
-      } else resolve(err ? { ok: false, error: err.message } : { ok: true });
-    });
-  });
+
+    return await runPrivileged('/tmp/mw-theme-restore.sh');
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 ipcMain.handle('export-css', async (event, { css }) => {
@@ -564,8 +453,6 @@ ipcMain.handle('export-css', async (event, { css }) => {
   if (!result.canceled && result.filePath) { fs.writeFileSync(result.filePath, css); return { ok: true, path: result.filePath }; }
   return { ok: false };
 });
-
-// ==================== IPC: READ FULL UI THEME CSS ====================
 
 ipcMain.handle('read-ui-theme', async () => {
   try {
@@ -575,20 +462,14 @@ ipcMain.handle('read-ui-theme', async () => {
     if (fs.existsSync(uiPath)) uiCSS = fs.readFileSync(uiPath, 'utf8');
     if (fs.existsSync(darkPath)) darkCSS = fs.readFileSync(darkPath, 'utf8');
     return { ok: true, uiCSS, darkCSS };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
-// ==================== AUTO-UPDATE ====================
-
-const https = require('https');
-const GITHUB_REPO = 'vbmm/mw-theme-studio';
-const CURRENT_VERSION = app.getVersion();
+// ==================== HTTP HELPERS ====================
 
 function httpGet(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'MW-Theme-Studio' } }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'MW-Theme-Studio/' + CURRENT_VERSION, 'Accept': 'application/json' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return httpGet(res.headers.location).then(resolve).catch(reject);
       }
@@ -597,13 +478,17 @@ function httpGet(url) {
       res.on('end', () => resolve({ status: res.statusCode, data }));
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
 function httpDownload(url, dest) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'MW-Theme-Studio' } }, (res) => {
+    const headers = { 'User-Agent': 'MW-Theme-Studio/' + CURRENT_VERSION };
+    if (url.includes('github.com') || url.includes('github-releases')) {
+      headers['Accept'] = 'application/octet-stream';
+    }
+    const req = https.get(url, { headers }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return httpDownload(res.headers.location, dest).then(resolve).catch(reject);
       }
@@ -611,9 +496,10 @@ function httpDownload(url, dest) {
       const file = fs.createWriteStream(dest);
       res.pipe(file);
       file.on('finish', () => { file.close(); resolve(); });
+      file.on('error', reject);
     });
     req.on('error', reject);
-    req.setTimeout(60000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(120000, () => { req.destroy(); reject(new Error('Download timeout')); });
   });
 }
 
@@ -626,6 +512,8 @@ function compareVersions(a, b) {
   }
   return 0;
 }
+
+// ==================== AUTO-UPDATE ====================
 
 ipcMain.handle('get-app-version', () => CURRENT_VERSION);
 
@@ -645,70 +533,52 @@ ipcMain.handle('check-for-update', async () => {
       downloadUrl: zipAsset?.browser_download_url || null,
       releaseName: release.name || ''
     };
-  } catch (e) {
-    return { available: false, error: e.message };
-  }
+  } catch (e) { return { available: false, error: e.message }; }
 });
 
 ipcMain.handle('install-update', async (event, downloadUrl) => {
   if (!downloadUrl) return { ok: false, error: 'No download URL' };
   const win = BrowserWindow.getFocusedWindow();
   try {
-    // Download zip
     const zipPath = '/tmp/mw-theme-studio-update.zip';
     const extractDir = '/tmp/mw-theme-studio-update';
 
-    win?.webContents.send('update-progress', 'Downloading update...');
+    win?.webContents.send('update-progress', 'Downloading...');
     await httpDownload(downloadUrl, zipPath);
 
-    // Clean extract dir
     if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
     fs.mkdirSync(extractDir, { recursive: true });
 
-    win?.webContents.send('update-progress', 'Extracting...');
+    win?.webContents.send('update-progress', 'Installing...');
 
-    // Extract and replace using a background script that runs after app quits
     const appPath = app.getPath('exe').replace(/\/Contents\/MacOS\/.*$/, '');
     const updateScript = `#!/bin/bash
-set -e
-# Extract
 cd "${extractDir}" && unzip -o "${zipPath}" > /dev/null 2>&1
-# Remove quarantine
-xattr -cr "${extractDir}/MW Theme Studio.app" 2>/dev/null || true
-# Replace app
+xattr -cr "${extractDir}/MW Theme Studio.app" 2>/dev/null
 rm -rf "${appPath}"
 mv "${extractDir}/MW Theme Studio.app" "${appPath}"
-# Cleanup
 rm -f "${zipPath}"
 rm -rf "${extractDir}"
 rm -f /tmp/mw-theme-studio-updater.sh
-echo "OK"
-`;
+echo "OK"`;
     fs.writeFileSync('/tmp/mw-theme-studio-updater.sh', updateScript, { mode: 0o755 });
 
-    win?.webContents.send('update-progress', 'Installing...');
-
-    // Run updater with admin privileges (needs permission to write to /Applications)
-    const oscmd = `osascript -e 'do shell script "bash /tmp/mw-theme-studio-updater.sh" with administrator privileges'`;
-    exec(oscmd, (err) => {
-      if (err) {
-        // If admin auth was cancelled or failed, don't quit
-        win?.webContents.send('update-progress', '');
-        dialog.showMessageBox(win, {
-          type: 'error',
-          title: 'Update Failed',
-          message: err.message.includes('User canceled') ? 'Update cancelled.' : 'Could not install update.',
-          detail: err.message.includes('User canceled') ? '' : err.message
-        });
-        return;
-      }
-      // Script replaced the app — relaunch from the new version
-      const { spawn: sp } = require('child_process');
-      sp('open', [appPath], { detached: true, stdio: 'ignore' }).unref();
-      setTimeout(() => app.quit(), 300);
-    });
-    return { ok: true };
+    // Use the same runPrivileged helper
+    const result = await runPrivileged('/tmp/mw-theme-studio-updater.sh');
+    if (result.ok && !result.viaTerminal) {
+      // Relaunch the new version
+      spawn('open', [appPath], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => app.quit(), 500);
+    } else if (result.ok && result.viaTerminal) {
+      // Terminal is handling it — quit so the script can replace the app
+      win?.webContents.send('update-progress', 'Terminal is installing. Quitting...');
+      setTimeout(() => app.quit(), 2000);
+    } else {
+      win?.webContents.send('update-progress', '');
+    }
+    return result;
   } catch (e) {
+    win?.webContents.send('update-progress', '');
     return { ok: false, error: e.message };
   }
 });
@@ -716,7 +586,6 @@ echo "OK"
 // ==================== ISSUE REPORTER ====================
 
 ipcMain.handle('report-issue', async (event, { title, body }) => {
-  const os = require('os');
   const sysInfo = [
     `**App Version:** ${CURRENT_VERSION}`,
     `**macOS:** ${os.release()} (${os.arch()})`,
@@ -725,35 +594,10 @@ ipcMain.handle('report-issue', async (event, { title, body }) => {
     ''
   ].join('\n');
   const fullBody = body ? `${sysInfo}\n---\n\n${body}` : sysInfo;
-  const url = `https://github.com/${GITHUB_REPO}/issues/new?` + 
+  const url = `https://github.com/${GITHUB_REPO}/issues/new?` +
     `title=${encodeURIComponent(title || 'Bug report')}` +
     `&body=${encodeURIComponent(fullBody)}` +
     `&labels=bug`;
-  const { shell } = require('electron');
   shell.openExternal(url);
   return { ok: true };
-});
-
-// Check for updates on launch (silent, non-blocking)
-app.whenReady().then(() => {
-  setTimeout(async () => {
-    try {
-      const res = await httpGet(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
-      if (res.status !== 200) return;
-      const release = JSON.parse(res.data);
-      const latestVersion = release.tag_name || '';
-      if (compareVersions(CURRENT_VERSION, latestVersion) < 0) {
-        const zipAsset = release.assets?.find(a => a.name.endsWith('.zip') && a.name.includes('arm64'));
-        const win = BrowserWindow.getAllWindows()[0];
-        if (win) {
-          win.webContents.send('update-available', {
-            latestVersion: latestVersion.replace(/^v/, ''),
-            downloadUrl: zipAsset?.browser_download_url || null,
-            releaseName: release.name || '',
-            releaseNotes: release.body || ''
-          });
-        }
-      }
-    } catch {}
-  }, 5000);
 });
