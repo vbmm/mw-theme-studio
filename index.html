@@ -596,7 +596,7 @@ function init(){
   const allG={...G,...chartG,...buttonG,...tradingG};
   for(const[gid,cols]of Object.entries(allG)){const el=document.getElementById(gid);if(!el)continue;const st=gid==='g-chart'?chartColors:gid==='g-bars'?barColors:gid==='g-buttons'?buttonColors:(gid==='g-table'||gid==='g-dom')?tradingColors:cc;
     for(const c of cols){const v=st[c.id]||'#000000';const r=document.createElement('div');r.className='crow';r.id='crow-'+c.id;r.innerHTML=`<label>${c.l}</label><input type="text" class="chex" id="h-${c.id}" value="${v}" oninput="anyHex('${c.id}',this.value)" maxlength="7"><input type="color" id="c-${c.id}" value="${v}" oninput="anyColor('${c.id}',this.value)" onchange="anyColorDone('${c.id}',this.value)">`;el.appendChild(r);}}
-  up();snap();captureOriginal();checkMW();loadChartColors();loadTradingColors();loadCustomPresets();loadUITheme();loadFavorites();
+  up();snap();captureOriginal();checkMW();autoImportMW();loadCustomPresets();loadFavorites();
   setupPreviewInteraction();
 }
 
@@ -930,7 +930,24 @@ async function saveApply(){
   }else{const b=new Blob([genCSS()],{type:'text/css'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='dark.css';a.click();URL.revokeObjectURL(u);toast('Downloaded','ok');}
 }
 async function restore(){if(!window.electronAPI||!confirm('Restore original?'))return;const r=await window.electronAPI.restoreTheme();toast(r.ok?'Restored! Restart MW.':r.error,r.ok?'ok':'err');}
-async function importCurrent(){if(!window.electronAPI)return;const r=await window.electronAPI.readCurrentTheme();if(r.ok&&r.colors){for(const[id,v]of Object.entries(r.colors))if(cc.hasOwnProperty(id))cc[id]=v;if(r.font){cf=r.font;document.getElementById('fontFamily').value=cf;}if(r.accent){accentColor=r.accent;}if(r.focus){focusColor=r.focus;}syncAllInputs();clrPreset();up();snap();captureOriginal();toast('Imported!','ok');}else toast(r.error||'Failed','err');}
+async function autoImportMW(){
+  if(!window.electronAPI)return;
+  // 1. Import CSS theme colors
+  const r=await window.electronAPI.readCurrentTheme();
+  if(r.ok&&r.colors){for(const[id,v]of Object.entries(r.colors))if(cc.hasOwnProperty(id))cc[id]=v;if(r.font){cf=r.font;document.getElementById('fontFamily').value=cf;}if(r.accent)accentColor=r.accent;if(r.focus)focusColor=r.focus;}
+  // 2. Import chart + bar theme colors
+  await loadChartColors();
+  // 3. Import trading/DOM/table/button colors
+  await loadTradingColors();
+  // 4. Import CSS variables + selectors
+  await loadUITheme();
+  // 5. Load theme dropdowns
+  await loadThemes();
+  // Sync everything + snapshot as "original" state
+  syncAllInputs();up();snap();captureOriginal();
+  console.log('[autoImportMW] Loaded all MW settings');
+}
+async function importCurrent(){await autoImportMW();toast('Imported from MW','ok');}
 async function loadChartColors(){if(!window.electronAPI)return;const r=await window.electronAPI.readChartColors();if(r.ok){for(const[k,v]of Object.entries(r.chart)){const ck='ch_'+k;if(ck in chartColors)chartColors[ck]=v;}for(const[k,v]of Object.entries(r.bars)){const bk='b_'+k;if(bk in barColors)barColors[bk]=v;}syncAllInputs();up();}}
 async function loadTradingColors(){if(!window.electronAPI?.readTradingColors)return;const r=await window.electronAPI.readTradingColors();if(r.ok){if(r.buttons){buttonColors.btn_buyText='#'+(r.buttons.buyText||'000000').slice(0,6);buttonColors.btn_buyBg='#'+(r.buttons.buyBg||'FFFFFF').slice(0,6);if(r.buttons.buyBg?.length>6)buttonAlphas.btn_buyBg=r.buttons.buyBg.slice(6);buttonColors.btn_sellText='#'+(r.buttons.sellText||'FFFFFF').slice(0,6);buttonColors.btn_sellBg='#'+(r.buttons.sellBg||'A52A2A').slice(0,6);if(r.buttons.sellBg?.length>6)buttonAlphas.btn_sellBg=r.buttons.sellBg.slice(6);}
     const t=r.table;tradingColors.t_upText='#'+(t.upText||'FFFFFF').slice(0,6);tradingColors.t_downText='#'+(t.downText||'FF0000').slice(0,6);tradingColors.t_upBg='#'+(t.upBg||'FFFFFF').slice(0,6);tradingColors.t_downBg='#'+(t.downBg||'962323').slice(0,6);tradingColors.t_upArrow='#'+(t.upArrow||'FFFFFF').slice(0,6);tradingColors.t_downArrow='#'+(t.downArrow||'FF0000').slice(0,6);
@@ -1035,7 +1052,7 @@ async function execCreateTheme() {
 }
 
 // Load themes on startup
-setTimeout(loadThemes, 500);
+// loadThemes called from autoImportMW on startup
 // Check MW status periodically
 setInterval(checkMWStatus, 30000);
 
